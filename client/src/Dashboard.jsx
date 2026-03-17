@@ -138,6 +138,18 @@ export default function Dashboard() {
   return (
     <div className="db-root">
 
+      {/* Hero banner */}
+      <div className="db-hero">
+        <div className="db-hero-overlay" />
+        <div className="db-hero-content">
+          <div className="db-hero-eyebrow">Racing Analytics Platform</div>
+          <h1 className="db-hero-title">
+            Race<span>Club</span> <em>Intelligence</em>
+          </h1>
+          <p className="db-hero-sub">Real-time data, lap analysis and behavioral insights for every driver.</p>
+        </div>
+      </div>
+
       {/* Header */}
       <header className="db-header">
         <div className="db-logo">
