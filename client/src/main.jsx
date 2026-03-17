@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import DuelMode from './DuelMode.jsx';
 import GeneralStats from './GeneralStats.jsx';
+import BehavioralStats from './BehavioralStats.jsx';
 import Dashboard from './Dashboard.jsx';
 import './App.css';
 
@@ -15,9 +16,10 @@ function Root() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  if (hash === '#/hotlap') return <App />;
-  if (hash === '#/duel')   return <DuelMode />;
-  if (hash === '#/stats')  return <GeneralStats />;
+  if (hash === '#/hotlap')     return <App />;
+  if (hash === '#/duel')       return <DuelMode />;
+  if (hash === '#/stats')      return <GeneralStats />;
+  if (hash === '#/behavioral') return <BehavioralStats />;
   return <Dashboard />;
 }
 

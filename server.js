@@ -407,6 +407,40 @@ app.get('/api/stats/general-meta', async (req, res) => {
   }
 });
 
+// ── GET /api/stats/drivers ───────────────────────────────────────────
+app.get('/api/stats/drivers', async (req, res) => {
+  let connection;
+  try {
+    connection = await mysql.createConnection(dbConfig());
+    const [rows] = await connection.execute(
+      'SELECT id, nickname, creationDate, lastLoginDateTime FROM drivers WHERE active=1 ORDER BY nickname'
+    );
+    res.json({ success: true, drivers: rows });
+  } catch (error) {
+    console.error('Database error (stats/drivers):', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    if (connection) try { await connection.end(); } catch (_) {}
+  }
+});
+
+// ── GET /api/stats/behavioral ────────────────────────────────────────
+app.get('/api/stats/behavioral', async (req, res) => {
+  let connection;
+  try {
+    connection = await mysql.createConnection(dbConfig());
+    const [[sessions]] = await Promise.all([
+      connection.execute('SELECT * FROM SessionStats ORDER BY CAST(TempoTotalegioco AS UNSIGNED) DESC'),
+    ]);
+    res.json({ success: true, sessions });
+  } catch (error) {
+    console.error('Database error (stats/behavioral):', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    if (connection) try { await connection.end(); } catch (_) {}
+  }
+});
+
 // ── GET /api/health ──────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
