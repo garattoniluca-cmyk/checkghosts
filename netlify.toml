@@ -1,0 +1,22 @@
+[build]
+  # Install root deps (serverless-http etc.) + build React client
+  command = "npm install && npm --prefix client install && npm --prefix client run build"
+  # Static files to serve
+  publish = "client/dist"
+
+[functions]
+  # Single Express adapter function
+  directory    = "netlify/functions"
+  node_bundler = "esbuild"
+
+# ── API: route /api/* to Express Netlify Function ─────────────────────
+[[redirects]]
+  from   = "/api/*"
+  to     = "/.netlify/functions/api/:splat"
+  status = 200
+
+# ── SPA fallback for React hash-router ───────────────────────────────
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200

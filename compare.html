@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>👻 CheckGhosts — Confronto Tempi</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1117;--bg2:#1a202c;--bg3:#1d2535;--border:#2d3748;
+  --text:#e2e8f0;--muted:#718096;
+  --blue:#63b3ed;--green:#48bb78;--yellow:#ecc94b;--red:#f56565;--orange:#f6ad55;
+}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;min-height:100vh;padding:1rem 1rem 3rem}
+
+/* ── Header ── */
+header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;margin-bottom:1.2rem;padding-bottom:.8rem;border-bottom:1px solid var(--border)}
+header h1{font-size:1.3rem;color:var(--blue)}
+header h1 span{color:var(--text);font-weight:300}
+.db-info{font-size:.7rem;color:var(--muted);background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:.3rem .7rem}
+
+/* ── Buttons ── */
+button{background:#3182ce;color:#fff;border:none;border-radius:6px;padding:.4rem .9rem;font-size:.82rem;font-weight:600;cursor:pointer;transition:opacity .15s}
+button:hover:not(:disabled){opacity:.85}
+button:disabled{opacity:.4;cursor:not-allowed}
+.btn-sm{padding:.25rem .6rem;font-size:.75rem}
+.btn-yellow{background:#b7791f}
+.btn-green{background:#276749}
+.btn-red{background:#9b2c2c}
+.btn-gray{background:#2d3748;color:var(--muted)}
+.filter-btn{background:var(--bg3);color:var(--muted);font-size:.75rem;padding:.28rem .65rem}
+.filter-btn.active{background:#3182ce;color:#fff}
+
+/* ── Leaderboard selector bar ── */
+#lb-bar{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin-bottom:.9rem;padding:.55rem .9rem;background:var(--bg2);border:1px solid var(--border);border-radius:8px}
+#lb-bar label{font-size:.78rem;color:var(--muted);font-weight:600;white-space:nowrap}
+.lb-select{background:var(--bg3);border:1px solid #4a5568;color:var(--text);border-radius:6px;padding:.3rem .65rem;font-size:.82rem;outline:none;cursor:pointer;min-width:170px;max-width:230px}
+.lb-select:focus,.lb-select:hover{border-color:var(--blue)}
+#lb-info{font-size:.73rem;color:var(--muted);margin-left:auto;font-style:italic}
+#lb-info.active{color:var(--blue);font-style:normal;font-weight:600}
+.stats-group-label{font-size:.63rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;padding-left:.1rem;margin-top:.1rem}
+#stats-bar-local{display:none;gap:.6rem;flex-wrap:wrap;margin-bottom:.8rem}
+#stats-bar-local.show{display:flex}
+.stat.rank1{background:linear-gradient(135deg,#2d2000,#1a1400);border-color:#b7791f}
+.stat.rank1 .val{color:var(--yellow)}
+
+/* ── Stats ── */
+#stats-bar{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:.5rem .85rem;min-width:105px;text-align:center}
+.stat .val{font-size:1.4rem;font-weight:700;line-height:1.2}
+.stat .lbl{font-size:.67rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.stat.blue .val{color:var(--blue)}.stat.green .val{color:var(--green)}.stat.yellow .val{color:var(--yellow)}.stat.red .val{color:var(--red)}
+
+/* ── Filters ── */
+#filters{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.8rem}
+#filters label{color:var(--muted);font-size:.78rem}
+#filters input{background:var(--bg2);border:1px solid #4a5568;color:var(--text);border-radius:5px;padding:.28rem .55rem;font-size:.78rem;outline:none;width:170px}
+#filters input:focus{border-color:#3182ce}
+
+/* ── Selection bar ── */
+#sel-bar{display:none;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.8rem;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:.6rem 1rem}
+#sel-bar.show{display:flex}
+#sel-info{font-size:.82rem;color:var(--text)}
+#sel-info strong{color:var(--blue)}
+
+/* ── Table ── */
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:1.5rem}
+table.ghost-table{width:100%;border-collapse:collapse;font-size:.78rem}
+.ghost-table thead tr{background:var(--bg2);position:sticky;top:0;z-index:1}
+.ghost-table th{padding:.5rem .65rem;text-align:left;font-weight:600;color:var(--muted);text-transform:uppercase;font-size:.64rem;letter-spacing:.05em;border-bottom:2px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+.ghost-table th:hover{color:var(--blue)}.ghost-table th.sorted{color:var(--blue)}
+.ghost-table td{padding:.45rem .65rem;border-bottom:1px solid var(--bg);vertical-align:middle;white-space:nowrap}
+.ghost-table tbody tr{background:#171923}
+.ghost-table tbody tr:nth-child(even){background:var(--bg3)}
+.ghost-table tbody tr:hover{background:var(--border)}
+.ghost-table tbody tr.sel1{background:#1a3a5c!important}
+.ghost-table tbody tr.sel2{background:#3d2000!important}
+
+/* ── Mono / time ── */
+.mono{font-family:'Courier New',monospace;font-size:.8rem;font-weight:600}
+.diff{font-family:'Courier New',monospace;font-weight:700}
+.diff.match{color:var(--green)}.diff.close{color:var(--yellow)}.diff.mismatch{color:var(--red)}.diff.na{color:var(--muted)}
+
+/* ── Badges ── */
+.badge{display:inline-block;padding:.12rem .45rem;border-radius:9999px;font-size:.65rem;font-weight:700;letter-spacing:.03em}
+.badge-green{background:#22543d;color:#9ae6b4}.badge-yellow{background:#744210;color:#fefcbf}.badge-red{background:#742a2a;color:#fed7d7}.badge-gray{background:#2d3748;color:#a0aec0}
+
+/* ── Checkbox select col ── */
+.cb-col{width:28px;text-align:center}
+input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:var(--blue)}
+.ghost-num{display:inline-block;width:18px;height:18px;border-radius:50%;font-size:.65rem;font-weight:700;text-align:center;line-height:18px}
+.ghost-num.g1{background:#1e4e8c;color:#90cdf4}
+.ghost-num.g2{background:#7b3d00;color:#fbd38d}
+
+/* ── Summary bars ── */
+#summary-section{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:.9rem 1.1rem;margin-bottom:1.2rem}
+#summary-section h2{font-size:.95rem;color:var(--blue);margin-bottom:.65rem}
+.progress-row{display:flex;align-items:center;gap:.55rem;margin-bottom:.4rem;font-size:.76rem}
+.progress-label{min-width:75px;color:var(--muted);text-align:right;font-size:.7rem}
+.progress-bg{flex:1;height:13px;background:var(--border);border-radius:9999px;overflow:hidden}
+.progress-fill{height:100%;border-radius:9999px}
+.progress-count{min-width:35px;font-family:'Courier New',monospace;font-size:.7rem;text-align:right}
+
+/* ── Loading / Error ── */
+#loading{display:flex;flex-direction:column;align-items:center;gap:.75rem;padding:2.5rem;color:var(--blue)}
+.spinner{width:35px;height:35px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.error-box{background:#742a2a22;border:1px solid #742a2a;border-radius:8px;padding:.8rem 1.2rem;color:var(--red);margin-bottom:1rem}
+.empty{text-align:center;padding:2.5rem;color:var(--muted)}
+
+/* ═══════════════════════════════════
+   TELEMETRIA SECTION
+═══════════════════════════════════ */
+#tele-section{display:none;border-top:2px solid var(--border);margin-top:.5rem;padding-top:1.2rem}
+.tele-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem}
+.tele-header h2{font-size:1.1rem;color:var(--blue)}
+
+/* Ghost info cards */
+.ghost-cards{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin-bottom:1.2rem}
+@media(max-width:640px){.ghost-cards{grid-template-columns:1fr}}
+.ghost-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:.75rem 1rem}
+.ghost-card.g1{border-color:#4a90d9}
+.ghost-card.g2{border-color:#c07000}
+.ghost-card h3{font-size:.95rem;font-weight:700;margin-bottom:.5rem}
+.ghost-card h3.c1{color:var(--blue)}.ghost-card h3.c2{color:var(--orange)}
+.ghost-card .row{display:flex;gap:.35rem;margin-bottom:.22rem;font-size:.78rem}
+.ghost-card .lbl{color:var(--muted);min-width:120px}
+.ghost-card .val{font-weight:600}
+
+/* Comparison tables */
+.ctable-wrap{overflow-x:auto;margin-bottom:1rem}
+.ctable{width:100%;border-collapse:collapse;font-size:.78rem}
+.ctable th,.ctable td{padding:.4rem .65rem;border:1px solid var(--border);text-align:left}
+.ctable thead th{background:var(--bg2);color:var(--muted);text-transform:uppercase;font-size:.65rem;letter-spacing:.04em}
+.ctable tbody tr:nth-child(even){background:var(--bg3)}
+.ctable tbody tr:nth-child(odd){background:#171923}
+.delta-green{color:var(--green);font-weight:700}.delta-yellow{color:var(--yellow);font-weight:700}.delta-red{color:var(--red);font-weight:700}
+
+/* Section titles */
+.section-title{font-size:.95rem;font-weight:700;color:var(--blue);margin:1.2rem 0 .6rem;padding-bottom:.3rem;border-bottom:1px solid var(--border)}
+
+/* Maps */
+.map-container{background:#1a202c;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:1rem}
+.map-legend{display:flex;gap:1rem;justify-content:center;font-size:.75rem;padding:.35rem;flex-wrap:wrap}
+.map-legend span{display:flex;align-items:center;gap:.3rem}
+.map-dot{width:12px;height:12px;border-radius:2px;display:inline-block}
+canvas.map-canvas{display:block;width:100%;aspect-ratio:16/9}
+
+/* Charts */
+.chart-block{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:.6rem .8rem;margin-bottom:1rem}
+.chart-block-title{font-size:.8rem;font-weight:700;color:var(--text);margin-bottom:.5rem}
+/* Scale controls */
+.scale-controls{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem;align-items:center;background:#111827;border-radius:6px;padding:.4rem .6rem}
+.scale-group{display:flex;align-items:center;gap:.3rem;flex-wrap:wrap}
+.sc-label{font-size:.7rem;color:var(--muted);min-width:18px;font-weight:700}
+.sc-auto{display:flex;align-items:center;gap:.2rem;font-size:.7rem;color:var(--muted);cursor:pointer}
+.sc-input{width:62px;background:#1a202c;border:1px solid #4a5568;color:var(--text);border-radius:4px;padding:.18rem .35rem;font-size:.7rem;outline:none}
+.sc-input:focus{border-color:#3182ce}
+.sc-input:disabled{opacity:.4}
+.sc-btn{padding:.18rem .45rem;font-size:.7rem;border-radius:4px;background:#2d3748;color:var(--muted)}
+.sc-btn:hover{color:var(--text)}
+.sc-divider{width:1px;height:18px;background:var(--border)}
+.chart-container{position:relative;height:260px}
+.chart-hint{font-size:.67rem;color:#4a5568;text-align:right;margin-top:.2rem}
+
+/* Frames table spoiler */
+details.frames-detail{margin-bottom:.8rem;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+details.frames-detail summary{padding:.55rem .9rem;cursor:pointer;font-size:.82rem;font-weight:600;color:var(--muted);user-select:none;list-style:none}
+details.frames-detail summary::before{content:'▶ ';font-size:.75rem}
+details.frames-detail[open] summary::before{content:'▼ '}
+.frames-table-wrap{overflow-x:auto;max-height:350px;overflow-y:auto}
+table.frames-table{width:100%;border-collapse:collapse;font-size:.72rem}
+.frames-table th,.frames-table td{padding:.3rem .55rem;border:1px solid var(--border);white-space:nowrap}
+.frames-table thead th{background:var(--bg2);position:sticky;top:0}
+.frames-table tbody tr:nth-child(even){background:var(--bg3)}
+.frames-table tbody tr:nth-child(odd){background:#171923}
+
+/* Struct box */
+.struct-box{background:#111827;border:1px solid var(--border);border-radius:6px;padding:.75rem 1rem;font-family:'Courier New',monospace;font-size:.72rem;color:#a0aec0;overflow-x:auto;margin-bottom:1rem}
+
+footer{margin-top:2rem;font-size:.68rem;color:#4a5568;text-align:center}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>👻 CheckGhosts <span>— Confronto Tempi sul Giro</span></h1>
+  <div class="db-info">jupiter-dev.sandboxgames.it:3309 / nestSkeleton.checkGhosts</div>
+  <button id="btn-reload" onclick="loadGhosts()">⟳ Ricarica</button>
+</header>
+
+<div id="error-box" class="error-box" style="display:none"></div>
+<div id="loading"><div class="spinner"></div><span>Connessione al database…</span></div>
+
+<div id="app" style="display:none">
+
+  <!-- Leaderboard selector -->
+  <div id="lb-bar">
+    <label>🏎️ Classe:</label>
+    <select id="sel-class" class="lb-select" onchange="onClassChange()">
+      <option value="">— Tutte le classi —</option>
+    </select>
+    <label>🏁 Tracciato:</label>
+    <select id="sel-track" class="lb-select" onchange="onTrackChange()">
+      <option value="">— Tutti i tracciati —</option>
+    </select>
+    <span id="lb-info">Caricamento…</span>
+  </div>
+
+  <!-- Stats: globale -->
+  <div class="stats-group-label">📦 Totale globale</div>
+  <div id="stats-bar"></div>
+
+  <!-- Stats: classifica selezionata -->
+  <div class="stats-group-label" id="local-stats-label" style="display:none">🏆 Classifica</div>
+  <div id="stats-bar-local"></div>
+
+  <!-- Summary bars -->
+  <div id="summary-section">
+    <h2>📊 Distribuzione</h2>
+    <div id="summary-bars"></div>
+  </div>
+
+  <!-- Selection bar -->
+  <div id="sel-bar">
+    <span id="sel-info">Seleziona 1 o 2 ghost dalla lista</span>
+    <button id="btn-analyze" onclick="startAnalysis()" style="background:#276749">🔬 Analizza</button>
+    <button class="btn-gray btn-sm" onclick="clearSelection()">✕ Deseleziona</button>
+  </div>
+
+  <!-- Filters -->
+  <div id="filters">
+    <label>Mostra:</label>
+    <button class="filter-btn active" data-filter="all"      onclick="setFilter('all',this)">Tutti</button>
+    <button class="filter-btn"        data-filter="match"    onclick="setFilter('match',this)">✓ Uguali</button>
+    <button class="filter-btn"        data-filter="close"    onclick="setFilter('close',this)">~ ±5ms</button>
+    <button class="filter-btn"        data-filter="mismatch" onclick="setFilter('mismatch',this)">✗ Diversi</button>
+    <label style="margin-left:.4rem">Cerca:</label>
+    <input type="text" id="search-box" placeholder="nome, pista, id…" oninput="renderTable()">
+    <span id="count-label" style="color:var(--muted);font-size:.74rem"></span>
+  </div>
+
+  <!-- Ghost List Table -->
+  <div class="table-wrap">
+    <table class="ghost-table">
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- ═══════ TELEMETRIA ═══════ -->
+  <div id="tele-section">
+    <div class="tele-header">
+      <h2 id="tele-title">🔬 Analisi Telemetria</h2>
+      <button class="btn-gray btn-sm" onclick="closeTele()">✕ Chiudi</button>
+    </div>
+
+    <!-- Ghost info cards -->
+    <div class="ghost-cards" id="ghost-cards"></div>
+
+    <!-- Comparison tables -->
+    <div id="cmp-tables"></div>
+
+    <!-- 2D Map -->
+    <div class="section-title">🗺️ Mappa 2D del Giro (piano X-Z)</div>
+    <div class="map-legend" id="map-legend">
+      <span><span class="map-dot" style="background:var(--blue)"></span>Ghost 1</span>
+    </div>
+    <div class="map-container">
+      <canvas class="map-canvas" id="lapMapCanvas"></canvas>
+    </div>
+
+    <!-- Microsector comparison map (2 ghosts only) -->
+    <div id="micro-map-wrap" style="display:none">
+      <div class="section-title">🏎️ Mappa Microsettori (forma G1, colore = più veloce)</div>
+      <div class="map-legend">
+        <span><span class="map-dot" style="background:var(--blue)"></span>G1 più veloce</span>
+        <span><span class="map-dot" style="background:var(--orange)"></span>G2 più veloce</span>
+      </div>
+      <div class="map-container">
+        <canvas class="map-canvas" id="comparisonMapCanvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="section-title">📈 Grafici vs Progresso Giro</div>
+    <p style="font-size:.7rem;color:#4a5568;margin-bottom:.8rem">Trascina per spostare · Rotella/pinch per zoomare · Usa i controlli scala per impostare manualmente gli assi</p>
+
+    <div id="charts-wrap"></div>
+
+    <!-- Struct data -->
+    <div class="section-title">📐 Struttura Dati GhostData</div>
+    <div class="struct-box">struct GhostData {
+  float time;              // Tempo dall'inizio (s)
+  float progress;          // Progresso tracciato [0, 1]
+  Vector3 position;        // Posizione (x, y, z) m
+  Quaternion rotation;     // Rotazione (x, y, z, w)
+  Vector3 velocity;        // Velocità (x, y, z) m/s
+  sbyte steer;             // Sterzo (-127…127) → [-1, 1]
+  byte gas;                // Acceleratore (0…255) → [0, 1]
+  byte brake;              // Freno (0…255) → [0, 1]
+  int rpm;                 // Giri motore
+  sbyte gear;              // Marcia (-1…N)
+  Vector3[4] wheelPosition;
+  Quaternion[4] wheelRotation;
+}</div>
+
+    <!-- Frame tables -->
+    <div class="section-title">📋 Frame Registrati</div>
+    <div id="frames-section"></div>
+  </div>
+</div>
+
+<footer>ghostData: base64 → gzip (pako) → JSON · lapTime in secondi → ×1000 ms · lapValueMs in ms</footer>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════════════════
+// Auto-detect: localhost → Express server; Netlify/other → relative path (Netlify Functions via redirect)
+const _BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'http://localhost:3001' : '';
+const API = `${_BASE}/api/ghosts`;
+const GRAVITY = 9.81;
+const C1 = '#63b3ed'; // Ghost 1 color (blue)
+const C2 = '#f6ad55'; // Ghost 2 color (orange)
+
+// Soglie classificazione
+// Verde  = 0 ms esatto
+// Giallo = -5ms … +5ms
+// Rosso  = > 5ms di differenza
+function classify(absDiff) {
+  if (absDiff === null) return 'mismatch';
+  if (absDiff === 0)   return 'match';
+  if (absDiff <= 5)    return 'close';
+  return 'mismatch';
+}
+
+// ═══════════════════════════════════════════════════════
+//  GLOBAL STATE
+// ═══════════════════════════════════════════════════════
+let allGhosts    = [];
+let currentFilter = 'all';
+let sortKey      = 'lapValueMs';   // leaderboard default: sort by lap time
+let sortDir      = 'asc';
+let dbCols       = [];
+let selected     = [];      // max 2 IDs
+let chartInstances = {};
+let mapScaleCache = null;
+// Leaderboard filter state
+let activeClassId = null;   // Number or null
+let activeTrackId = null;   // Number or null
+let classesData   = [];     // [{id, name}]
+let tracksData    = [];     // [{id, name, trackKms}]
+
+// ═══════════════════════════════════════════════════════
+//  TIME UTILS
+// ═══════════════════════════════════════════════════════
+function msToTime(ms) {
+  if (ms===null||ms===undefined||isNaN(ms)) return '--:--.---';
+  const s=ms<0?'-':'',a=Math.abs(ms);
+  return `${s}${String(Math.floor(a/60000)).padStart(2,'0')}:${String(Math.floor((a%60000)/1000)).padStart(2,'0')}.${String(Math.round(a%1000)).padStart(3,'0')}`;
+}
+function fmtDiff(d) {
+  if (d===null||isNaN(d)) return 'N/A';
+  return (d>=0?'+':'')+Math.round(d)+' ms';
+}
+function fmtS(s,dec=3) { return s!=null?s.toFixed(dec):'N/A'; }
+
+// ═══════════════════════════════════════════════════════
+//  GHOST DATA DECODE
+//  ghostData = base64( gzip( JSON ) )
+//  JSON.lapTime in SECONDI → ×1000 per ms
+// ═══════════════════════════════════════════════════════
+function decodeGhostData(b64) {
+  if (!b64) return null;
+  try {
+    const bin=atob(String(b64).trim()),len=bin.length,buf=new Uint8Array(len);
+    for(let i=0;i<len;i++) buf[i]=bin.charCodeAt(i);
+    return JSON.parse(pako.inflate(buf,{to:'string'}));
+  } catch(e){ return null; }
+}
+
+// ═══════════════════════════════════════════════════════
+//  LOAD DATA FROM API
+// ═══════════════════════════════════════════════════════
+async function loadGhosts() {
+  document.getElementById('loading').style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.getElementById('error-box').style.display='none';
+  document.getElementById('btn-reload').disabled=true;
+  selected=[];
+  closeTele();
+
+  try {
+    const res=await fetch(API);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json=await res.json();
+    if(!json.success) throw new Error(json.error||'Errore server');
+
+    const all=json.data;
+    if(all.length>0) dbCols=Object.keys(all[0]).filter(k=>k!=='ghostData');
+
+    // Escludi records senza ghostData (null o vuoto)
+    const withGhost=all.filter(r=>r.ghostData!=null&&String(r.ghostData).trim()!=='');
+    const skipped=all.length-withGhost.length;
+
+    allGhosts=withGhost.map(row=>{
+      const decoded=decodeGhostData(row.ghostData);
+      const ghostLapMs=decoded&&typeof decoded.lapTime==='number'?Math.round(decoded.lapTime*1000):null;
+      const dbLapMs=row.lapValueMs!=null?Number(row.lapValueMs):null;
+      const diff=(dbLapMs!==null&&ghostLapMs!==null)?dbLapMs-ghostLapMs:null;
+      const absDiff=diff!==null?Math.abs(diff):null;
+      const status=classify(absDiff);
+      const intermediates=(decoded&&Array.isArray(decoded.intermediates))?decoded.intermediates.map(t=>Math.round(t*1000)):[];
+      return {...row,_decoded:decoded,_ghostLapMs:ghostLapMs,_dbLapMs:dbLapMs,_diff:diff,_absDiff:absDiff,_status:status,_skipped:skipped,_intermediates:intermediates};
+    });
+
+    // Sync state from DOM select values (handles browser form-state restoration)
+    const cv=document.getElementById('sel-class')?.value;
+    const tv=document.getElementById('sel-track')?.value;
+    if(cv) activeClassId=Number(cv); else activeClassId=activeClassId??null;
+    if(tv) activeTrackId=Number(tv); else activeTrackId=activeTrackId??null;
+
+    buildHeader();
+    renderStats();
+    renderSummaryBars();
+    renderTable();
+    document.getElementById('loading').style.display='none';
+    document.getElementById('app').style.display='block';
+    updateLbInfo();
+  } catch(err) {
+    document.getElementById('loading').style.display='none';
+    const b=document.getElementById('error-box');
+    b.innerHTML=`<strong>Errore:</strong> ${err.message}`;
+    b.style.display='block';
+  } finally {
+    document.getElementById('btn-reload').disabled=false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  INIT — load classes + tracks, then ghost data
+// ═══════════════════════════════════════════════════════
+async function init() {
+  try { await Promise.all([loadClasses(), loadTracks()]); }
+  catch(e){ console.warn('loadClasses/loadTracks failed:', e); }
+  await loadGhosts();
+}
+
+async function loadClasses() {
+  const res  = await fetch(`${_BASE}/api/classes`);
+  const json = await res.json();
+  classesData = json.data || [];
+  const sel = document.getElementById('sel-class');
+  sel.innerHTML = '<option value="">— Tutte le classi —</option>' +
+    classesData.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+}
+
+async function loadTracks() {
+  const res  = await fetch(`${_BASE}/api/tracks`);
+  const json = await res.json();
+  tracksData = json.data || [];
+  const sel = document.getElementById('sel-track');
+  sel.innerHTML = '<option value="">— Tutti i tracciati —</option>' +
+    tracksData.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');
+}
+
+function onClassChange() {
+  const v = document.getElementById('sel-class').value;
+  activeClassId = v ? Number(v) : null;
+  sortKey='lapValueMs'; sortDir='asc';
+  selected=[]; closeTele();
+  renderStats(); renderSummaryBars(); buildHeader(); renderTable(); updateLbInfo();
+}
+
+function onTrackChange() {
+  const v = document.getElementById('sel-track').value;
+  activeTrackId = v ? Number(v) : null;
+  sortKey='lapValueMs'; sortDir='asc';
+  selected=[]; closeTele();
+  renderStats(); renderSummaryBars(); buildHeader(); renderTable(); updateLbInfo();
+}
+
+function updateLbInfo() {
+  const info = document.getElementById('lb-info');
+  if(!info) return;
+  if(activeClassId===null && activeTrackId===null) {
+    info.textContent = `${allGhosts.length} ghost totali`;
+    info.className='';
+    return;
+  }
+  const lb = getLeaderboard();
+  const cname = classesData.find(c=>c.id===activeClassId)?.name||'';
+  const tname = tracksData.find(t=>t.id===activeTrackId)?.name||'';
+  info.textContent = `${lb.length} ghost · ${[cname,tname].filter(Boolean).join(' / ')}`;
+  info.className='active';
+}
+
+// ═══════════════════════════════════════════════════════
+//  TABLE HEADER
+// ═══════════════════════════════════════════════════════
+function buildHeader() {
+  const lb = activeClassId!==null||activeTrackId!==null;
+  const hiddenCols = new Set([
+    ...(activeClassId!==null ? ['idClass','className'] : []),
+    ...(activeTrackId!==null ? ['idTrack','trackName'] : []),
+  ]);
+  const cols=[
+    ...(lb ? [{key:'_rank',label:'#'}] : []),
+    {key:null,label:''},
+    {key:null,label:''},
+    ...dbCols.filter(c=>!hiddenCols.has(c)).map(c=>({key:c,label:c})),
+    {key:'_dbLapMs',   label:'lapValueMs'},
+    {key:'_ghostLapMs',label:'ghostData lapTime'},
+    {key:'_diff',      label:'Diff'},
+    {key:'_status',    label:'Stato'},
+  ];
+  document.getElementById('thead').innerHTML='<tr>'+cols.map(c=>{
+    if(!c.key) return '<th></th>';
+    if(c.key==='_rank') return '<th style="width:36px;text-align:center">#</th>';
+    const s=sortKey===c.key?' class="sorted"':'';
+    const i=sortKey===c.key?(sortDir==='asc'?' ↑':' ↓'):' ⇅';
+    return `<th${s} onclick="doSort('${c.key}')">${c.label}<span style="opacity:.5;font-size:.65rem">${i}</span></th>`;
+  }).join('')+'</tr>';
+}
+
+// ═══════════════════════════════════════════════════════
+//  STATS
+// ═══════════════════════════════════════════════════════
+function renderStats() {
+  // ── Global stats (all records) ──
+  const t=allGhosts.length,match=allGhosts.filter(g=>g._status==='match').length,
+        close=allGhosts.filter(g=>g._status==='close').length,
+        mis=allGhosts.filter(g=>g._status==='mismatch').length,
+        sk=allGhosts[0]?._skipped??0;
+  document.getElementById('stats-bar').innerHTML=[
+    stat('blue',t,'Con ghostData'),
+    stat('green',match,'Uguali (0ms)'),
+    stat('yellow',close,'±5ms'),
+    stat('red',mis,'Diversi'),
+    sk?stat('',sk,'Senza ghost (esclusi)'):'',
+  ].join('');
+
+  // ── Local stats (current leaderboard) ──
+  const localBar   = document.getElementById('stats-bar-local');
+  const localLabel = document.getElementById('local-stats-label');
+  if(activeClassId!==null||activeTrackId!==null){
+    const lb  = getLeaderboard();
+    const lt  = lb.length;
+    const lm  = lb.filter(g=>g._status==='match').length;
+    const lc  = lb.filter(g=>g._status==='close').length;
+    const lms = lb.filter(g=>g._status==='mismatch').length;
+    const cname = classesData.find(c=>c.id===activeClassId)?.name||'';
+    const tname = tracksData.find(t=>t.id===activeTrackId)?.name||'';
+    localLabel.textContent = `🏆 Classifica — ${[cname,tname].filter(Boolean).join(' · ')}`;
+    localLabel.style.display='block';
+    localBar.classList.add('show');
+    localBar.innerHTML=[
+      stat('rank1',lt,'In classifica'),
+      stat('green',lm,'Uguali (0ms)'),
+      stat('yellow',lc,'±5ms'),
+      stat('red',lms,'Diversi'),
+    ].join('');
+  } else {
+    localLabel.style.display='none';
+    localBar.classList.remove('show');
+    localBar.innerHTML='';
+  }
+}
+function stat(cls,val,lbl){return`<div class="stat ${cls}"><div class="val">${val}</div><div class="lbl">${lbl}</div></div>`}
+
+function renderSummaryBars() {
+  // Use leaderboard slice when a filter is active, otherwise all ghosts
+  const source = (activeClassId!==null||activeTrackId!==null) ? getLeaderboard() : allGhosts;
+  const total  = source.length||1;
+  const groups=[
+    {label:'✓ Uguali',key:'match',color:'var(--green)'},
+    {label:'~ ±5ms',  key:'close',color:'var(--yellow)'},
+    {label:'✗ Diversi',key:'mismatch',color:'var(--red)'},
+  ];
+  document.getElementById('summary-bars').innerHTML=groups.map(g=>{
+    const cnt=source.filter(r=>r._status===g.key).length;
+    const pct=(cnt/total*100).toFixed(1);
+    return`<div class="progress-row">
+      <span class="progress-label">${g.label}</span>
+      <div class="progress-bg"><div class="progress-fill" style="width:${pct}%;background:${g.color}"></div></div>
+      <span class="progress-count" style="color:${g.color}">${cnt}</span>
+      <span style="font-size:.68rem;color:var(--muted);min-width:38px">${pct}%</span>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════
+//  TABLE RENDER
+// ═══════════════════════════════════════════════════════
+// Returns all ghosts matching the selected class and/or track (no search/status filter)
+function getLeaderboard() {
+  let rows = allGhosts;
+  if(activeClassId!==null) rows=rows.filter(g=>Number(g.idClass)===activeClassId);
+  if(activeTrackId!==null) rows=rows.filter(g=>Number(g.idTrack)===activeTrackId);
+  return rows;
+}
+
+function getFiltered() {
+  let rows = getLeaderboard();   // always start from current leaderboard slice
+  if(currentFilter!=='all') rows=rows.filter(g=>g._status===currentFilter);
+  const q=(document.getElementById('search-box')?.value||'').trim().toLowerCase();
+  if(q) rows=rows.filter(g=>dbCols.some(k=>String(g[k]??'').toLowerCase().includes(q)));
+  return [...rows].sort((a,b)=>{
+    const av=a[sortKey],bv=b[sortKey];
+    if(av==null) return 1; if(bv==null) return -1;
+    const c=av<bv?-1:av>bv?1:0;
+    return sortDir==='asc'?c:-c;
+  });
+}
+
+function renderTable() {
+  const lb = activeClassId!==null||activeTrackId!==null;
+
+  // Columns to hide when class/track are pinned (redundant in leaderboard context)
+  const hiddenCols = new Set([
+    ...(activeClassId!==null ? ['idClass','className'] : []),
+    ...(activeTrackId!==null ? ['idTrack','trackName'] : []),
+  ]);
+  const visibleDbCols = dbCols.filter(c=>!hiddenCols.has(c));
+
+  // No selection: show placeholder instead of full recordset
+  if(!lb && allGhosts.length>0){
+    document.getElementById('count-label').textContent='';
+    updateSelBar();
+    document.getElementById('tbody').innerHTML=`<tr><td colspan="20"
+      style="text-align:center;padding:2.5rem 1rem;color:var(--muted)">
+      <div style="font-size:2rem;margin-bottom:.5rem">🏁</div>
+      <div style="font-size:.95rem;margin-bottom:.3rem">Seleziona una <strong style="color:var(--blue)">Classe</strong> e un <strong style="color:var(--blue)">Tracciato</strong></div>
+      <div style="font-size:.78rem">per visualizzare la classifica</div>
+    </td></tr>`;
+    return;
+  }
+
+  // Build rank map: ghost id → position in leaderboard sorted by lapValueMs asc
+  const leaderboard = getLeaderboard();
+  const rankMap = {};
+  if(lb){
+    [...leaderboard]
+      .sort((a,b)=>Number(a.lapValueMs||9999999)-Number(b.lapValueMs||9999999))
+      .forEach((g,i)=>{ rankMap[g.id??i]=i+1; });
+  }
+
+  const rows = getFiltered();
+  document.getElementById('count-label').textContent=`${rows.length}/${leaderboard.length}`;
+  updateSelBar();
+  const totalCols=(lb?1:0)+2+visibleDbCols.length+4;
+  let html='';
+
+  if(!rows.length){
+    html=`<tr><td colspan="${totalCols}" class="empty">Nessun record trovato.</td></tr>`;
+  } else {
+    rows.forEach((g,idx)=>{
+      const rowId=g.id??g.ID??idx;
+      const selIdx=selected.indexOf(rowId);
+      const isS1=selIdx===0,isS2=selIdx===1;
+      const rowCls=isS1?'sel1':isS2?'sel2':'';
+
+      html+=`<tr class="${rowCls}">`;
+
+      // Rank column (leaderboard mode only)
+      if(lb){
+        const rank=rankMap[rowId];
+        const medal=rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':'';
+        const rc=rank===1?'var(--yellow)':rank===2?'#a0aec0':rank===3?'#c05621':'var(--muted)';
+        html+=`<td style="text-align:center;font-family:'Courier New',monospace;font-size:.8rem;font-weight:${rank<=3?700:400};color:${rc}">${medal||(rank?'#'+rank:'—')}</td>`;
+      }
+
+      // Checkbox col
+      html+=`<td class="cb-col"><input type="checkbox" onchange="toggleSel(${rowId},this)" ${selIdx>=0?'checked':''}></td>`;
+      // Ghost number indicator
+      html+=`<td class="cb-col">${isS1?'<span class="ghost-num g1">G1</span>':isS2?'<span class="ghost-num g2">G2</span>':''}</td>`;
+
+      visibleDbCols.forEach(col=>{
+        if(col==='lapValueMs'){
+          const v=g[col]!=null?Number(g[col]):null;
+          html+=`<td><span class="mono">${v!=null?msToTime(v):'—'}</span></td>`;
+        } else {
+          const v=g[col];
+          html+=`<td>${v==null?'<span style="color:var(--muted)">—</span>':esc(String(v))}</td>`;
+        }
+      });
+
+      html+=`<td><span class="mono">${msToTime(g._dbLapMs)}</span><br><span style="color:var(--muted);font-size:.67rem">${g._dbLapMs??'—'} ms</span></td>`;
+      if(g._ghostLapMs!==null){
+        html+=`<td><span class="mono">${msToTime(g._ghostLapMs)}</span><br><span style="color:var(--muted);font-size:.67rem">${g._ghostLapMs} ms</span></td>`;
+      } else {
+        html+=`<td><span style="color:var(--red);font-size:.75rem">Errore decodifica</span></td>`;
+      }
+      html+=`<td><span class="diff ${g._status}">${fmtDiff(g._diff)}</span></td>`;
+      html+=`<td>${badge(g._status)}</td>`;
+      html+='</tr>';
+    });
+  }
+  document.getElementById('tbody').innerHTML=html;
+}
+
+// ═══════════════════════════════════════════════════════
+//  SELECTION
+// ═══════════════════════════════════════════════════════
+function toggleSel(id,cb) {
+  const idx=selected.indexOf(id);
+  if(cb.checked){
+    if(selected.length>=2){ cb.checked=false; return; }
+    selected.push(id);
+  } else {
+    if(idx>=0) selected.splice(idx,1);
+  }
+  renderTable();
+}
+function clearSelection(){ selected=[]; renderTable(); }
+function updateSelBar(){
+  const bar=document.getElementById('sel-bar');
+  const info=document.getElementById('sel-info');
+  const btn=document.getElementById('btn-analyze');
+  if(selected.length===0){ bar.classList.remove('show'); return; }
+  bar.classList.add('show');
+  const names=selected.map(id=>{
+    const g=allGhosts.find(r=>(r.ID??r.id)===id);
+    return g?`<strong>${g.DRIVERNICKNAME||g.driverName||id}</strong>`:id;
+  });
+  if(selected.length===1){
+    info.innerHTML=`Ghost selezionato: ${names[0]}`;
+    btn.textContent='🔬 Analizza Ghost';
+  } else {
+    info.innerHTML=`G1: ${names[0]} · G2: ${names[1]}`;
+    btn.textContent='⚡ Confronta 2 Ghost';
+  }
+  btn.disabled=false;
+}
+
+// ═══════════════════════════════════════════════════════
+//  ANALYSIS START
+// ═══════════════════════════════════════════════════════
+function startAnalysis() {
+  const ghosts=selected.map(id=>allGhosts.find(r=>(r.ID??r.id)===id)).filter(Boolean);
+  if(!ghosts.length) return;
+
+  const g1row=ghosts[0], g2row=ghosts[1]||null;
+  const meta1=g1row._decoded, meta2=g2row?g2row._decoded:null;
+  if(!meta1){ alert('Impossibile decodificare il ghostData del Ghost 1.'); return; }
+
+  // Enrich meta with db info
+  meta1.driverName=g1row.DRIVERNICKNAME||g1row.driverName||'Ghost 1';
+  meta1.trackName=g1row.TRACKNAME||g1row.trackName||'—';
+  if(meta2){
+    meta2.driverName=g2row.DRIVERNICKNAME||g2row.driverName||'Ghost 2';
+    meta2.trackName=g2row.TRACKNAME||g2row.trackName||'—';
+  }
+
+  // Add cumulative distance
+  addCumDist(meta1.frames);
+  if(meta2) addCumDist(meta2.frames);
+
+  const data1=calcDerived(meta1.frames);
+  const data2=meta2?calcDerived(meta2.frames):null;
+  const adv1=calcAdvanced(meta1.frames,data1);
+  const adv2=meta2?calcAdvanced(meta2.frames,data2):null;
+
+  buildTele(meta1,meta2,data1,data2,adv1,adv2,g1row,g2row);
+
+  document.getElementById('tele-section').style.display='block';
+  document.getElementById('tele-section').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function closeTele(){
+  document.getElementById('tele-section').style.display='none';
+  destroyCharts();
+  mapScaleCache=null;
+}
+
+function addCumDist(frames){
+  if(!frames) return;
+  let d=0;
+  for(let i=0;i<frames.length;i++){
+    if(i>0){
+      const p=frames[i].position,pv=frames[i-1].position;
+      if(p&&pv) d+=Math.sqrt((p.x-pv.x)**2+(p.z-pv.z)**2);
+    }
+    frames[i].cumDist=d;
+  }
+  frames._totalLen=d;
+}
+
+// ═══════════════════════════════════════════════════════
+//  DERIVED DATA (from Telemetria ok.html logic)
+// ═══════════════════════════════════════════════════════
+function calcDerived(frames){
+  const n=frames.length; if(n<3) return null;
+  const prog=frames.map(f=>f.progress),
+        speedMps=new Array(n).fill(0),speedKmh=new Array(n).fill(0),
+        curvature=new Array(n).fill(0),latAccG=new Array(n).fill(0),
+        longAccG=new Array(n).fill(0),
+        steer=frames.map(f=>(f.steer??0)/127),
+        gas=frames.map(f=>(f.gas??0)/255),
+        brake=frames.map(f=>(f.brake??0)/255),
+        time=frames.map(f=>f.time);
+
+  for(let i=0;i<n;i++){
+    const v=frames[i].velocity;
+    if(v&&typeof v.x==='number'){speedMps[i]=Math.sqrt(v.x**2+v.y**2+v.z**2);speedKmh[i]=speedMps[i]*3.6;}
+    else{speedMps[i]=NaN;speedKmh[i]=NaN;}
+  }
+  for(let i=0;i<n;i++){
+    const dt=i>0?time[i]-time[i-1]:(n>1?time[1]-time[0]:0);
+    if(dt>1e-6&&!isNaN(speedMps[i])){
+      if(i===0&&n>1&&!isNaN(speedMps[1])) longAccG[i]=(speedMps[1]-speedMps[0])/dt/GRAVITY;
+      else if(i>0&&!isNaN(speedMps[i-1])) longAccG[i]=(speedMps[i]-speedMps[i-1])/dt/GRAVITY;
+    }
+  }
+  for(let i=1;i<n-1;i++){
+    const pp=frames[i-1].position,pc=frames[i].position,pn=frames[i+1].position;
+    const qp=prog[i-1],qc=prog[i],qn=prog[i+1];
+    if(!pp||!pc||!pn) continue;
+    const df=qn-qc,db=qc-qp,dc=qn-qp;
+    if(Math.abs(dc)<1e-9||Math.abs(df)<1e-9||Math.abs(db)<1e-9){curvature[i]=0;latAccG[i]=0;continue;}
+    const xp=(pn.x-pp.x)/dc,zp=(pn.z-pp.z)/dc;
+    const xpp=2*(((pn.x-pc.x)/df)-((pc.x-pp.x)/db))/dc;
+    const zpp=2*(((pn.z-pc.z)/df)-((pc.z-pp.z)/db))/dc;
+    const num=Math.abs(xp*zpp-zp*xpp),den=(xp**2+zp**2)**1.5;
+    curvature[i]=den<1e-9?0:num/den;
+    latAccG[i]=!isNaN(speedMps[i])?(speedMps[i]**2*curvature[i])/GRAVITY:0;
+  }
+  curvature[0]=curvature[1];curvature[n-1]=curvature[n-2];
+  latAccG[0]=latAccG[1];latAccG[n-1]=latAccG[n-2];
+  const totalLen=frames._totalLen??0;
+  return{prog,speedKmh,curvature,latAccG,longAccG,steer,gas,brake,totalLen};
+}
+
+function calcAdvanced(frames,d){
+  if(!frames||!d) return null;
+  const n=frames.length;
+  let fg=0,fb=0;
+  d.gas.forEach(v=>{if(v>=0.99)fg++;});
+  d.brake.forEach(v=>{if(v>=0.99)fb++;});
+  const vl=d.longAccG.filter(isFinite),vat=d.latAccG.filter(isFinite);
+  return{
+    pctGas:(fg/n)*100,pctBrake:(fb/n)*100,
+    peakBrake:Math.abs(Math.min(0,...vl)),
+    peakLat:Math.max(0,...vat.map(Math.abs)),
+    peakLong:Math.max(0,...vl),
+  };
+}
+
+function calcFreq(frames){
+  if(!frames||frames.length<2) return null;
+  let td=0,n=0;
+  for(let i=1;i<frames.length;i++){
+    const dt=frames[i].time-frames[i-1].time;
+    if(dt>0.0001){td+=dt;n++;}
+  }
+  return n>0?1/(td/n):null;
+}
+
+// ═══════════════════════════════════════════════════════
+//  BUILD TELEMETRY UI
+// ═══════════════════════════════════════════════════════
+function buildTele(m1,m2,d1,d2,adv1,adv2,row1,row2){
+  destroyCharts(); mapScaleCache=null;
+
+  // Title
+  document.getElementById('tele-title').textContent=
+    m2?`⚡ Confronto: ${m1.driverName} vs ${m2.driverName}`:`🔬 Analisi: ${m1.driverName}`;
+
+  // Map legend
+  const leg=document.getElementById('map-legend');
+  leg.innerHTML=`<span><span class="map-dot" style="background:${C1}"></span>${m1.driverName}</span>`
+    +(m2?`<span><span class="map-dot" style="background:${C2}"></span>${m2.driverName}</span>`:'');
+
+  // Ghost cards
+  buildGhostCards(m1,m2,d1,d2,row1,row2);
+
+  // Comparison tables
+  buildCmpTables(m1,m2,adv1,adv2);
+
+  // Draw maps (use rAF)
+  requestAnimationFrame(()=>{
+    drawLapMap(m1.frames,m2?.frames);
+    if(m2) drawMicroMap(m1.frames,m2.frames,d1?.totalLen);
+    document.getElementById('micro-map-wrap').style.display=m2?'block':'none';
+  });
+
+  // Charts
+  buildChartsUI();
+  requestAnimationFrame(()=>createAllCharts(d1,d2,m2?m2.driverName:null,m1.driverName));
+
+  // Frame tables
+  buildFrameTables(m1,m2,d1,d2);
+}
+
+function buildGhostCards(m1,m2,d1,d2,row1,row2){
+  const cards=document.getElementById('ghost-cards');
+  const inter1=m1.intermediates?[...m1.intermediates]:[];
+  if(inter1.length===2) inter1.push(m1.lapTime-inter1[0]-inter1[1]);
+  const inter2=m2&&m2.intermediates?[...m2.intermediates]:[];
+  if(inter2.length===2) inter2.push(m2.lapTime-inter2[0]-inter2[1]);
+
+  const card=(meta,derived,row,cls,cc,idx)=>`<div class="ghost-card ${cls}">
+    <h3 class="${cc}">Ghost ${idx}${meta?': '+meta.driverName:''}</h3>
+    ${meta?`
+    <div class="row"><span class="lbl">Pilota:</span><span class="val">${meta.driverName}</span></div>
+    <div class="row"><span class="lbl">Tracciato:</span><span class="val">${meta.trackName||row?.TRACKNAME||'—'}</span></div>
+    <div class="row"><span class="lbl">Classe:</span><span class="val">${row?.CLASSNAME||'—'}</span></div>
+    <div class="row"><span class="lbl">Tempo giro:</span><span class="val mono">${fmtS(meta.lapTime,3)} s = ${msToTime(Math.round(meta.lapTime*1000))}</span></div>
+    <div class="row"><span class="lbl">lapValueMs (DB):</span><span class="val mono">${msToTime(row?._dbLapMs)} (${row?._dbLapMs??'—'} ms)</span></div>
+    <div class="row"><span class="lbl">Differenza:</span><span class="val mono ${row?._status??''}">${fmtDiff(row?._diff)}</span></div>
+    ${(idx===1?inter1:inter2).map((t,i)=>`<div class="row"><span class="lbl">Intermedio T${i+1}:</span><span class="val mono">${fmtS(t,3)} s = ${msToTime(Math.round(t*1000))}</span></div>`).join('')}
+    <div class="row"><span class="lbl">Frequenza:</span><span class="val">${(calcFreq(meta.frames)??0).toFixed(2)} Hz</span></div>
+    <div class="row"><span class="lbl">Frames:</span><span class="val">${meta.frames.length}</span></div>
+    <div class="row"><span class="lbl">Lungh. tracciato:</span><span class="val">${derived?.totalLen?.toFixed(1)??'—'} m</span></div>
+    `:'<div style="color:var(--muted)">Non caricato</div>'}
+  </div>`;
+
+  cards.innerHTML=card(m1,d1,row1,'g1','c1',1)+card(m2,d2,row2,'g2','c2',2);
+  if(!m2) cards.style.gridTemplateColumns='1fr';
+  else cards.style.gridTemplateColumns='';
+}
+
+function buildCmpTables(m1,m2,adv1,adv2){
+  const el=document.getElementById('cmp-tables');
+  if(!m2||!adv1||!adv2){ el.innerHTML=''; return; }
+
+  const inter1=m1.intermediates?[...m1.intermediates]:[];
+  if(inter1.length===2) inter1.push(m1.lapTime-inter1[0]-inter1[1]);
+  const inter2=m2.intermediates?[...m2.intermediates]:[];
+  if(inter2.length===2) inter2.push(m2.lapTime-inter2[0]-inter2[1]);
+
+  const delta=(v,invert=false,prec=3,unit='')=>{
+    if(v==null||isNaN(v)) return 'N/A';
+    const s=v>1e-6?'pos':v<-1e-6?'neg':'zero';
+    const cls=s==='zero'?'delta-yellow':((s==='neg')===!invert?'delta-green':'delta-red');
+    return`<span class="${cls}">${v>=0?'+':''}${v.toFixed(prec)}${unit}</span>`;
+  };
+
+  const mainRows=[
+    ['Tempo giro (s)',fmtS(m1.lapTime),fmtS(m2.lapTime),delta(m1.lapTime-m2.lapTime)],
+    ['Tempo giro (mm:ss.ms)',msToTime(Math.round(m1.lapTime*1000)),msToTime(Math.round(m2.lapTime*1000)),delta(m1.lapTime-m2.lapTime)],
+    ['Lungh. tracciato (m)',(adv1.totalLen||0).toFixed(1),(adv2.totalLen||0).toFixed(1),delta((adv1.totalLen||0)-(adv2.totalLen||0),false,1)],
+    ...['0','1','2'].map(i=>{
+      const a=inter1[i],b=inter2[i];
+      return a!=null&&b!=null?[`Intermedio T${Number(i)+1} (s)`,fmtS(a),fmtS(b),delta(a-b)]:[`Intermedio T${Number(i)+1}`,'N/A','N/A','N/A'];
+    }),
+  ];
+  const advRows=[
+    ['% Gas pieno (≥99%)',fmtS(adv1.pctGas,1)+'%',fmtS(adv2.pctGas,1)+'%',delta(adv1.pctGas-adv2.pctGas,true,1,'%')],
+    ['% Freno pieno (≥99%)',fmtS(adv1.pctBrake,1)+'%',fmtS(adv2.pctBrake,1)+'%',delta(adv1.pctBrake-adv2.pctBrake,false,1,'%')],
+    ['Picco frenata (G)',fmtS(adv1.peakBrake,2),fmtS(adv2.peakBrake,2),delta(adv1.peakBrake-adv2.peakBrake,true,2)],
+    ['Picco acc. lat. (G)',fmtS(adv1.peakLat,2),fmtS(adv2.peakLat,2),delta(adv1.peakLat-adv2.peakLat,true,2)],
+    ['Picco acc. long. (G)',fmtS(adv1.peakLong,2),fmtS(adv2.peakLong,2),delta(adv1.peakLong-adv2.peakLong,true,2)],
+  ];
+  const tbl=(title,rows)=>`
+    <div class="section-title">${title}</div>
+    <div class="ctable-wrap">
+      <table class="ctable">
+        <thead><tr><th>Metrica</th><th style="color:${C1}">${m1.driverName}</th><th style="color:${C2}">${m2.driverName}</th><th>Δ (G1−G2)</th></tr></thead>
+        <tbody>${rows.map(r=>'<tr>'+r.map((c,i)=>`<td${i===0?' style="font-weight:600"':''}>${c}</td>`).join('')+'</tr>').join('')}</tbody>
+      </table>
+    </div>`;
+  el.innerHTML=tbl('📊 Confronto Dati Principali',mainRows)+tbl('⚡ Metriche Avanzate',advRows);
+}
+
+// ═══════════════════════════════════════════════════════
+//  LAP MAP
+// ═══════════════════════════════════════════════════════
+function drawLapMap(f1,f2){
+  const canvas=document.getElementById('lapMapCanvas');
+  sizeCanvas(canvas);
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  const allF=[...(f1||[]),...(f2||[])];
+  const sc=buildScale(canvas,allF);
+  if(!sc) return;
+
+  const draw=(frames,color)=>{
+    if(!frames||frames.length<2) return;
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath();
+    let first=true;
+    frames.forEach(fr=>{
+      if(!fr.position||typeof fr.position.x!=='number') return;
+      const x=sc.mx(fr.position.x),y=sc.mz(fr.position.z);
+      first?(ctx.moveTo(x,y),first=false):ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    // Start dot
+    const sf=frames.find(fr=>fr.position&&typeof fr.position.x==='number');
+    if(sf){ ctx.fillStyle=color; ctx.fillRect(sc.mx(sf.position.x)-3,sc.mz(sf.position.z)-3,6,6); }
+  };
+  draw(f1,C1);
+  draw(f2,C2);
+}
+
+// ═══════════════════════════════════════════════════════
+//  MICROSECTOR MAP
+// ═══════════════════════════════════════════════════════
+function drawMicroMap(f1,f2,totalLen1){
+  const canvas=document.getElementById('comparisonMapCanvas');
+  sizeCanvas(canvas);
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!f1||!f2||!totalLen1||totalLen1<=0) return;
+
+  const sc=buildScale(canvas,f1);
+  if(!sc) return;
+
+  const sectors=calcDistSectors(f1,f2,totalLen1);
+  if(!sectors) return;
+
+  sectors.forEach(s=>{
+    if(isNaN(s.time1)||isNaN(s.time2)) return;
+    const color=s.fasterGhost===1?C1:C2;
+    // Draw the ghost1 path segment for this sector
+    ctx.strokeStyle=color; ctx.lineWidth=3; ctx.beginPath();
+    let first=true;
+    for(let i=0;i<f1.length;i++){
+      const p=f1[i].progress;
+      if(p<s.startP||p>s.endP) continue;
+      const fr=f1[i];
+      if(!fr.position||typeof fr.position.x!=='number') continue;
+      const x=sc.mx(fr.position.x),y=sc.mz(fr.position.z);
+      first?(ctx.moveTo(x,y),first=false):ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  });
+}
+
+function calcDistSectors(f1,f2,totalLen){
+  const seg=100,numSeg=Math.max(10,Math.round(totalLen/seg));
+  const segLen=totalLen/numSeg;
+  const results=[]; let ci=0;
+  for(let i=0;i<numSeg;i++){
+    const sD=i*segLen,eD=Math.min((i+1)*segLen,totalLen);
+    let sP=0,eP=1;
+    let fs=false;
+    for(let j=ci;j<f1.length;j++){
+      if(f1[j].cumDist>=sD){
+        sP=j===0?f1[0].progress:lerp(f1[j-1].cumDist,f1[j-1].progress,f1[j].cumDist,f1[j].progress,sD);
+        ci=Math.max(0,j-1); fs=true; break;
+      }
+    }
+    if(!fs) sP=f1[f1.length-1].progress;
+    let fe=false;
+    for(let j=ci;j<f1.length;j++){
+      if(f1[j].cumDist>=eD){
+        eP=j===0?f1[0].progress:lerp(f1[j-1].cumDist,f1[j-1].progress,f1[j].cumDist,f1[j].progress,eD);
+        fe=true; break;
+      }
+    }
+    if(!fe||eD>=totalLen-1e-6) eP=1.0;
+    sP=Math.max(0,Math.min(1,sP)); eP=Math.max(0,Math.min(1,eP));
+    const t1=intrTime(f1,eP)-intrTime(f1,sP);
+    const t2=intrTime(f2,eP)-intrTime(f2,sP);
+    results.push({segment:i,startP:sP,endP:eP,time1:t1,time2:t2,fasterGhost:t1<=t2?1:2});
+  }
+  return results;
+}
+function lerp(x0,y0,x1,y1,x){ const d=x1-x0; return d<1e-9?y0:y0+(x-x0)/d*(y1-y0); }
+function intrTime(frames,prog){
+  if(prog<=frames[0].progress) return frames[0].time;
+  if(prog>=frames[frames.length-1].progress) return frames[frames.length-1].time;
+  for(let i=1;i<frames.length;i++){
+    if(frames[i].progress>=prog){
+      return lerp(frames[i-1].progress,frames[i-1].time,frames[i].progress,frames[i].time,prog);
+    }
+  }
+  return frames[frames.length-1].time;
+}
+
+function buildScale(canvas,frames){
+  if(!frames||!frames.length) return null;
+  let minX=Infinity,maxX=-Infinity,minZ=Infinity,maxZ=-Infinity;
+  frames.forEach(f=>{
+    if(!f.position||typeof f.position.x!=='number') return;
+    minX=Math.min(minX,f.position.x);maxX=Math.max(maxX,f.position.x);
+    minZ=Math.min(minZ,f.position.z);maxZ=Math.max(maxZ,f.position.z);
+  });
+  const ww=maxX-minX,wh=maxZ-minZ,eps=1e-6;
+  if(ww<eps&&wh<eps) return null;
+  const pad=20,dw=canvas.width-2*pad,dh=canvas.height-2*pad;
+  if(dw<=0||dh<=0) return null;
+  const scale=Math.min(ww<eps?Infinity:dw/ww,wh<eps?Infinity:dh/wh);
+  if(!isFinite(scale)||scale<=0) return null;
+  const ox=pad+(dw-ww*scale)/2,oz=pad+(dh-wh*scale)/2;
+  return{
+    mx:x=>ox+(x-minX)*scale,
+    mz:z=>canvas.height-(oz+(z-minZ)*scale),
+  };
+}
+function sizeCanvas(canvas){
+  const c=canvas.parentElement; if(!c) return;
+  canvas.width=c.clientWidth||600;
+  canvas.height=Math.round(canvas.width*9/16);
+}
+
+// ═══════════════════════════════════════════════════════
+//  CHARTS WITH SCALE CONTROLS
+// ═══════════════════════════════════════════════════════
+const CHART_DEFS=[
+  {id:'curvatureChart',  title:'Curvatura (κ)',         yLabel:'Curvatura [1/m]',      key:'curvature',  yFixed:false},
+  {id:'speedChart',      title:'Velocità',              yLabel:'Velocità [km/h]',      key:'speedKmh',   yFixed:false},
+  {id:'latAccChart',     title:'Acc. Laterale',         yLabel:'Acc. Lat. [G]',        key:'latAccG',    yFixed:false},
+  {id:'longAccChart',    title:'Acc. Longitudinale',    yLabel:'Acc. Long. [G]',       key:'longAccG',   yFixed:false},
+  {id:'steerChart',      title:'Sterzo',                yLabel:'Sterzo [-1…1]',        key:'steer',      yFixed:true, yMin:-1.05,yMax:1.05},
+  {id:'gasChart',        title:'Gas',                   yLabel:'Gas [0…1]',            key:'gas',        yFixed:true, yMin:-0.05,yMax:1.05},
+  {id:'brakeChart',      title:'Freno',                 yLabel:'Freno [0…1]',          key:'brake',      yFixed:true, yMin:-0.05,yMax:1.05},
+];
+
+function buildChartsUI(){
+  const wrap=document.getElementById('charts-wrap');
+  wrap.innerHTML=CHART_DEFS.map(def=>`
+    <div class="chart-block">
+      <div class="chart-block-title">${def.title}</div>
+      <div class="scale-controls">
+        <div class="scale-group">
+          <span class="sc-label">Y:</span>
+          <label class="sc-auto"><input type="checkbox" id="yauto_${def.id}" checked onchange="onAutoY('${def.id}',this)"> Auto</label>
+          <input class="sc-input" type="number" id="ymin_${def.id}" placeholder="min" step="0.01" disabled>
+          <input class="sc-input" type="number" id="ymax_${def.id}" placeholder="max" step="0.01" disabled>
+          <button class="sc-btn btn-sm" onclick="applyY('${def.id}')">⏎ Applica</button>
+          <button class="sc-btn btn-sm btn-gray" onclick="resetY('${def.id}')">↺ Reset</button>
+        </div>
+        <div class="sc-divider"></div>
+        <div class="scale-group">
+          <span class="sc-label">X:</span>
+          <label class="sc-auto"><input type="checkbox" id="xauto_${def.id}" checked onchange="onAutoX('${def.id}',this)"> Auto</label>
+          <input class="sc-input" type="number" id="xmin_${def.id}" placeholder="min" step="0.01" disabled>
+          <input class="sc-input" type="number" id="xmax_${def.id}" placeholder="max" step="0.01" disabled>
+          <button class="sc-btn btn-sm" onclick="applyX('${def.id}')">⏎ Applica</button>
+          <button class="sc-btn btn-sm btn-gray" onclick="resetX('${def.id}')">↺ Reset</button>
+        </div>
+      </div>
+      <div class="chart-container"><canvas id="${def.id}"></canvas></div>
+      <div class="chart-hint">Trascina per spostare · Rotella/pinch per zoomare sugli assi</div>
+    </div>
+  `).join('');
+}
+
+// Scale control handlers
+function onAutoY(id,cb){
+  const d=cb.checked;
+  document.getElementById('ymin_'+id).disabled=d;
+  document.getElementById('ymax_'+id).disabled=d;
+  if(d) resetY(id);
+}
+function onAutoX(id,cb){
+  const d=cb.checked;
+  document.getElementById('xmin_'+id).disabled=d;
+  document.getElementById('xmax_'+id).disabled=d;
+  if(d) resetX(id);
+}
+function applyY(id){
+  const ch=chartInstances[id]; if(!ch) return;
+  const mn=parseFloat(document.getElementById('ymin_'+id).value);
+  const mx=parseFloat(document.getElementById('ymax_'+id).value);
+  if(!isNaN(mn)) ch.options.scales.y.min=mn;
+  if(!isNaN(mx)) ch.options.scales.y.max=mx;
+  ch.update();
+}
+function applyX(id){
+  const ch=chartInstances[id]; if(!ch) return;
+  const mn=parseFloat(document.getElementById('xmin_'+id).value);
+  const mx=parseFloat(document.getElementById('xmax_'+id).value);
+  if(!isNaN(mn)) ch.options.scales.x.min=mn;
+  if(!isNaN(mx)) ch.options.scales.x.max=mx;
+  ch.update();
+}
+function resetY(id){
+  const ch=chartInstances[id]; if(!ch) return;
+  const def=CHART_DEFS.find(d=>d.id===id);
+  delete ch.options.scales.y.min;
+  delete ch.options.scales.y.max;
+  if(def?.yFixed){ ch.options.scales.y.min=def.yMin; ch.options.scales.y.max=def.yMax; }
+  document.getElementById('ymin_'+id).value='';
+  document.getElementById('ymax_'+id).value='';
+  document.getElementById('yauto_'+id).checked=true;
+  document.getElementById('ymin_'+id).disabled=true;
+  document.getElementById('ymax_'+id).disabled=true;
+  ch.resetZoom();
+}
+function resetX(id){
+  const ch=chartInstances[id]; if(!ch) return;
+  delete ch.options.scales.x.min;
+  delete ch.options.scales.x.max;
+  document.getElementById('xmin_'+id).value='';
+  document.getElementById('xmax_'+id).value='';
+  document.getElementById('xauto_'+id).checked=true;
+  document.getElementById('xmin_'+id).disabled=true;
+  document.getElementById('xmax_'+id).disabled=true;
+  ch.resetZoom();
+}
+
+function destroyCharts(){
+  Object.values(chartInstances).forEach(c=>{if(c)c.destroy();});
+  chartInstances={};
+}
+
+function createAllCharts(d1,d2,name2,name1){
+  if(!d1&&!d2) return;
+  CHART_DEFS.forEach(def=>{
+    const ctx=document.getElementById(def.id)?.getContext('2d');
+    if(!ctx) return;
+    if(chartInstances[def.id]) chartInstances[def.id].destroy();
+
+    const datasets=[];
+    if(d1&&d1[def.key]) datasets.push({
+      label:name1||'Ghost 1',
+      data:d1[def.key].map((y,i)=>({x:d1.prog[i],y})),
+      borderColor:C1,backgroundColor:C1+'33',borderWidth:1.5,pointRadius:0,tension:0.1
+    });
+    if(d2&&d2[def.key]) datasets.push({
+      label:name2||'Ghost 2',
+      data:d2[def.key].map((y,i)=>({x:d2.prog[i],y})),
+      borderColor:C2,backgroundColor:C2+'33',borderWidth:1.5,pointRadius:0,tension:0.1
+    });
+    if(!datasets.length) return;
+
+    const yOpts={
+      title:{display:true,text:def.yLabel,color:'#a0aec0'},
+      ticks:{color:'#a0aec0',precision:2},
+      grid:{color:'#4a5568'},
+    };
+    if(def.yFixed){yOpts.min=def.yMin;yOpts.max=def.yMax;}
+
+    chartInstances[def.id]=new Chart(ctx,{
+      type:'line',
+      data:{datasets},
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        animation:{duration:300},
+        scales:{
+          x:{type:'linear',title:{display:true,text:'Progresso Giro [0–1]',color:'#a0aec0'},ticks:{color:'#a0aec0'},grid:{color:'#4a5568'}},
+          y:yOpts
+        },
+        plugins:{
+          legend:{display:true,labels:{color:'#e2e8f0'},
+            onHover:(e)=>{if(e.native) e.native.target.style.cursor='pointer';},
+            onLeave:(e)=>{if(e.native) e.native.target.style.cursor='default';}
+          },
+          tooltip:{mode:'index',intersect:false},
+          zoom:{
+            pan:{enabled:true,mode:'xy'},
+            zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'xy'}
+          }
+        }
+      }
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+//  FRAME TABLES
+// ═══════════════════════════════════════════════════════
+function buildFrameTables(m1,m2,d1,d2){
+  const sec=document.getElementById('frames-section');
+  const makeTable=(meta,derived,idx)=>{
+    if(!meta) return `<div style="color:var(--muted);font-size:.8rem">Ghost ${idx} non disponibile.</div>`;
+    const MAX=3000;
+    const rows=meta.frames.slice(0,MAX).map((f,i)=>`<tr>
+      <td>${i}</td>
+      <td>${f.time?.toFixed(3)??'—'}</td>
+      <td>${f.progress?.toFixed(4)??'—'}</td>
+      <td>${fmtVec(f.position)}</td>
+      <td>${fmtQuat(f.rotation)}</td>
+      <td>${fmtVec(f.velocity)}</td>
+      <td>${derived?.steer?.[i]?.toFixed(3)??'—'}</td>
+      <td>${derived?.gas?.[i]?.toFixed(3)??'—'}</td>
+      <td>${derived?.brake?.[i]?.toFixed(3)??'—'}</td>
+      <td>${f.rpm??'—'}</td>
+      <td>${f.gear??'—'}</td>
+    </tr>`).join('');
+    const extra=meta.frames.length>MAX?`<tr><td colspan="11" style="text-align:center;color:var(--muted)">…altri ${meta.frames.length-MAX} frame non mostrati</td></tr>`:'';
+    return`<details class="frames-detail">
+      <summary>Ghost ${idx}: ${meta.driverName} — ${meta.frames.length} frame</summary>
+      <div class="frames-table-wrap">
+        <table class="frames-table">
+          <thead><tr><th>#</th><th>Tempo (s)</th><th>Progress</th><th>Pos (x,y,z)</th><th>Rot (x,y,z,w)</th><th>Vel (x,y,z)</th><th>Sterzo</th><th>Gas</th><th>Freno</th><th>RPM</th><th>Marcia</th></tr></thead>
+          <tbody>${rows}${extra}</tbody>
+        </table>
+      </div>
+    </details>`;
+  };
+  sec.innerHTML=makeTable(m1,d1,1)+makeTable(m2,d2,2);
+}
+
+function fmtVec(v){if(!v||typeof v.x!=='number') return '—'; return`${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)}`;}
+function fmtQuat(q){if(!q||typeof q.x!=='number') return '—'; return`${q.x.toFixed(2)}, ${q.y.toFixed(2)}, ${q.z.toFixed(2)}, ${q.w.toFixed(2)}`;}
+
+// ═══════════════════════════════════════════════════════
+//  HELPERS UI
+// ═══════════════════════════════════════════════════════
+function badge(status){
+  const m={match:['badge badge-green','✓ Uguale'],close:['badge badge-yellow','~ ±5ms'],mismatch:['badge badge-red','✗ Diverso']};
+  const[cls,lbl]=m[status]??['badge badge-gray','N/A'];
+  return`<span class="${cls}">${lbl}</span>`;
+}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function doSort(key){sortDir=sortKey===key&&sortDir==='asc'?'desc':'asc';sortKey=key;buildHeader();renderTable();}
+function setFilter(f,btn){currentFilter=f;document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderTable();}
+
+// ═══════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════
+init();
+</script>
+</body>
+</html>
