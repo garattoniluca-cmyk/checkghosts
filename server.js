@@ -383,7 +383,7 @@ app.get('/api/stats/general-meta', async (req, res) => {
     connection = await mysql.createConnection(dbConfig());
     const [[drivers], [classes], [tracks], [gameModes], [details]] = await Promise.all([
       connection.execute(
-        'SELECT id, nickname, nationCode, preferredNumber FROM drivers WHERE active=1 ORDER BY nickname'
+        'SELECT id, nickname, nationCode, preferredNumber, creationDate, lastLoginDateTime FROM drivers WHERE active=1 ORDER BY nickname'
       ),
       connection.execute(
         'SELECT id, name FROM definitionsCarClasses WHERE active=1 ORDER BY id'

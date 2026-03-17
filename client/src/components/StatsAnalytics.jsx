@@ -1,14 +1,13 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Chart as ChartJS,
-  BarController,
-  BarElement,
-  CategoryScale,
-  LinearScale,
+  BarController, BarElement,
+  LineController, LineElement, PointElement,
+  CategoryScale, LinearScale, Filler,
   Tooltip as ChartTooltip,
 } from 'chart.js';
 
-ChartJS.register(BarController, BarElement, CategoryScale, LinearScale, ChartTooltip);
+ChartJS.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Filler, ChartTooltip);
 
 // ── Constants ─────────────────────────────────────────────────────────
 const PAGE_SIZE = 25;
@@ -26,6 +25,57 @@ function heatColor(ratio) {
 
 function fmtN(n) { return n == null ? '—' : Number(n).toLocaleString('en-US'); }
 function fmtKm(n) { return n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
+
+// ── Date utilities ─────────────────────────────────────────────────────
+function toDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function isoWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+function monthStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function fmtDate(s) {
+  const d = new Date(s + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function fmtWeek(s) { return s.replace('-W', ' W'); }
+function fmtMonth(s) {
+  const [y, m] = s.split('-');
+  return new Date(+y, +m - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+function daysInRange(from, to) {
+  const days = [];
+  const cur = new Date(from + 'T00:00:00');
+  const end = new Date(to + 'T00:00:00');
+  while (cur <= end) { days.push(toDateStr(cur)); cur.setDate(cur.getDate() + 1); }
+  return days;
+}
+function weeksInRange(from, to) {
+  const weeks = []; const seen = new Set();
+  const cur = new Date(from + 'T00:00:00');
+  cur.setDate(cur.getDate() - (cur.getDay() + 6) % 7);
+  const end = new Date(to + 'T00:00:00');
+  while (cur <= end) {
+    const w = isoWeek(cur);
+    if (!seen.has(w)) { seen.add(w); weeks.push(w); }
+    cur.setDate(cur.getDate() + 7);
+  }
+  return weeks;
+}
+function monthsInRange(from, to) {
+  const months = [];
+  const cur = new Date(from + 'T00:00:00'); cur.setDate(1);
+  const end = new Date(to + 'T00:00:00');
+  while (cur <= end) { months.push(monthStr(cur)); cur.setMonth(cur.getMonth() + 1); }
+  return months;
+}
 
 // ── Pagination ────────────────────────────────────────────────────────
 function Pagination({ page, total, pageSize, onChange }) {
@@ -70,6 +120,42 @@ function BarChart({ labels, datasets, height = 220 }) {
         },
         scales: {
           x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#1e1e1e' } },
+          y: { ticks: { color: '#666', font: { size: 11 }, callback: v => fmtN(v) }, grid: { color: '#1e1e1e' }, beginAtZero: true },
+        },
+      },
+    });
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [labels, datasets, height]);
+
+  return <div ref={containerRef} style={{ height }} />;
+}
+
+// ── Line chart component ───────────────────────────────────────────────
+function LineChart({ labels, datasets, height = 220 }) {
+  const containerRef = useRef(null);
+  const chartRef     = useRef(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '100%';
+    container.innerHTML = '';
+    container.appendChild(canvas);
+
+    chartRef.current = new ChartJS(canvas.getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
+        plugins: {
+          legend: { display: datasets.length > 1, labels: { color: '#888', font: { size: 11 } } },
+          tooltip: { callbacks: { label: (item) => ` ${item.dataset.label || ''}: ${fmtN(item.raw)}` } },
+        },
+        scales: {
+          x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45, maxTicksLimit: 30 }, grid: { color: '#1e1e1e' } },
           y: { ticks: { color: '#666', font: { size: 11 }, callback: v => fmtN(v) }, grid: { color: '#1e1e1e' }, beginAtZero: true },
         },
       },
@@ -141,6 +227,11 @@ export default function StatsAnalytics({
 
   // ── Driver search ───────────────────────────────────────────────────
   const [playerSearch, setPlayerSearch]     = useState('');
+
+  // ── Registrations section ────────────────────────────────────────────
+  const [regGranularity, setRegGranularity] = useState('daily');
+  const [regFrom, setRegFrom]               = useState(() => toDateStr(new Date(Date.now() - 29 * 86400000)));
+  const [regTo, setRegTo]                   = useState(() => toDateStr(new Date()));
 
   // Reset helpers
   const resetGlobal = () => setGlobalPage(1);
@@ -413,6 +504,51 @@ export default function StatsAnalytics({
     };
   }, [playerRecords]);
 
+  // ── Registrations data ───────────────────────────────────────────────
+  const regData = useMemo(() => {
+    if (!drivers.length) return { labels: [], counts: [], total: 0, peak: '—', avg: '0' };
+    const fromDate = new Date(regFrom + 'T00:00:00');
+    const toDate   = new Date(regTo   + 'T23:59:59');
+    const inRange  = drivers.filter(d => {
+      if (!d.creationDate) return false;
+      const dt = new Date(d.creationDate);
+      return dt >= fromDate && dt <= toDate;
+    });
+    const map = {};
+    for (const d of inRange) {
+      const dt  = new Date(d.creationDate);
+      const key = regGranularity === 'daily'  ? toDateStr(dt)
+                : regGranularity === 'weekly' ? isoWeek(dt)
+                : monthStr(dt);
+      map[key] = (map[key] || 0) + 1;
+    }
+    const periods = regGranularity === 'daily'  ? daysInRange(regFrom, regTo)
+                  : regGranularity === 'weekly' ? weeksInRange(regFrom, regTo)
+                  : monthsInRange(regFrom, regTo);
+    const counts  = periods.map(p => map[p] || 0);
+    const labels  = regGranularity === 'daily'  ? periods.map(fmtDate)
+                  : regGranularity === 'weekly' ? periods.map(fmtWeek)
+                  : periods.map(fmtMonth);
+    const maxIdx  = counts.indexOf(Math.max(...counts, 0));
+    return {
+      labels, counts, total: inRange.length,
+      peak: maxIdx >= 0 && counts[maxIdx] > 0 ? `${labels[maxIdx]} (${counts[maxIdx]})` : '—',
+      avg:  periods.length > 0 ? (inRange.length / periods.length).toFixed(1) : '0',
+    };
+  }, [drivers, regFrom, regTo, regGranularity]);
+
+  // ── Active players data ──────────────────────────────────────────────
+  const activeData = useMemo(() => {
+    if (!drivers.length) return { total: 0, d1: 0, d2: 0, d3: 0, d7: 0 };
+    const now   = Date.now();
+    const total = drivers.length;
+    const countActive = days => drivers.filter(d => {
+      if (!d.lastLoginDateTime) return false;
+      return (now - new Date(d.lastLoginDateTime).getTime()) <= days * 86400000;
+    }).length;
+    return { total, d1: countActive(1), d2: countActive(2), d3: countActive(3), d7: countActive(7) };
+  }, [drivers]);
+
   // ── RENDER ──────────────────────────────────────────────────────────
   if (loading && !rows.length) {
     return (
@@ -476,6 +612,82 @@ export default function StatsAnalytics({
             <span className="global-stat-label">Track×Class</span>
           </div>
         </div>
+
+        {/* ═══ Section A: Player Registrations ═══ */}
+        <details className="overview-section dl-section" open>
+          <summary className="overview-summary">
+            Player Registrations — {fmtN(drivers.length)} total drivers
+          </summary>
+          <div className="overview-content">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+              {['daily', 'weekly', 'monthly'].map(g => (
+                <button key={g} className={`gs-mode-pill${regGranularity === g ? ' active' : ''}`}
+                  onClick={() => setRegGranularity(g)} style={{ textTransform: 'capitalize' }}>{g}</button>
+              ))}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginLeft: '1rem' }}>
+                <span style={{ color: '#666', fontSize: '0.78rem' }}>From</span>
+                <input type="date" value={regFrom} onChange={e => setRegFrom(e.target.value)}
+                  style={{ background: '#111', border: '1px solid #333', color: '#ccc', padding: '0.2rem 0.4rem', borderRadius: 4, fontSize: '0.8rem' }} />
+                <span style={{ color: '#666', fontSize: '0.78rem' }}>To</span>
+                <input type="date" value={regTo} onChange={e => setRegTo(e.target.value)}
+                  style={{ background: '#111', border: '1px solid #333', color: '#ccc', padding: '0.2rem 0.4rem', borderRadius: 4, fontSize: '0.8rem' }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '2rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+              <span className="dl-chart-note">In range: <strong style={{ color: '#F5C518' }}>{fmtN(regData.total)}</strong></span>
+              <span className="dl-chart-note">Peak: <strong style={{ color: '#F5C518' }}>{regData.peak}</strong></span>
+              <span className="dl-chart-note">
+                Avg/{regGranularity === 'daily' ? 'day' : regGranularity === 'weekly' ? 'week' : 'month'}:
+                <strong style={{ color: '#F5C518' }}> {regData.avg}</strong>
+              </span>
+            </div>
+            {regData.labels.length > 0
+              ? <LineChart height={220} labels={regData.labels} datasets={[{
+                  label: 'Registrations',
+                  data: regData.counts,
+                  borderColor: '#F5C518',
+                  backgroundColor: 'rgba(245,197,24,0.08)',
+                  fill: true, tension: 0.4,
+                  pointRadius: regData.labels.length > 60 ? 0 : 3,
+                  borderWidth: 2,
+                }]} />
+              : <p className="dl-chart-note">No registrations in selected range.</p>
+            }
+          </div>
+        </details>
+
+        {/* ═══ Section B: Active Players ═══ */}
+        <details className="overview-section dl-section" open>
+          <summary className="overview-summary">
+            Active Players — last login analysis
+          </summary>
+          <div className="overview-content">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '0.75rem' }}>
+              {[
+                { label: 'Last 24h',   count: activeData.d1 },
+                { label: 'Last 2 days', count: activeData.d2 },
+                { label: 'Last 3 days', count: activeData.d3 },
+                { label: 'Last 7 days', count: activeData.d7 },
+              ].map(({ label, count }) => {
+                const pct = activeData.total > 0 ? ((count / activeData.total) * 100).toFixed(1) : '0.0';
+                return (
+                  <div key={label} style={{ background: '#111', border: '1px solid #222', borderRadius: 8, padding: '1rem', textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 700, color: '#E91E63', fontVariantNumeric: 'tabular-nums' }}>{pct}%</div>
+                    <div style={{ fontSize: '1rem', color: '#F5C518', margin: '0.25rem 0' }}>{fmtN(count)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#666' }}>{label}</div>
+                    <div style={{ marginTop: '0.5rem', background: '#1a1a1a', borderRadius: 4, height: 4 }}>
+                      <div style={{ width: `${pct}%`, background: '#E91E63', height: '100%', borderRadius: 4, transition: 'width 0.4s' }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="dl-chart-note" style={{ color: '#555' }}>
+              Total drivers: {fmtN(activeData.total)}
+              {activeData.total > 0 && ' · Drivers without login data are excluded from active counts'}
+            </p>
+          </div>
+        </details>
 
         {/* ═══ Section 1: Activity by Game Mode ═══ */}
         <details className="overview-section dl-section" open>
