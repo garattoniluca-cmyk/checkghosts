@@ -441,6 +441,49 @@ app.get('/api/stats/behavioral', async (req, res) => {
   }
 });
 
+// ── POST /api/auth/login ─────────────────────────────────────────────
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Missing credentials' });
+
+  let connection;
+  try {
+    connection = await mysql.createConnection(dbConfig());
+
+    // Discover column names dynamically
+    const [cols] = await connection.execute(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'usersIntelligence'
+       ORDER BY ORDINAL_POSITION`,
+      [resolvedDb]
+    );
+    const colNames = cols.map(c => c.COLUMN_NAME);
+
+    const userCol = colNames.find(c => ['username', 'user', 'email', 'login', 'nickname'].includes(c.toLowerCase()));
+    const passCol = colNames.find(c => ['password', 'pass', 'pwd', 'passwd'].includes(c.toLowerCase()));
+
+    if (!userCol || !passCol) {
+      return res.status(500).json({ error: `Cannot identify login columns. Available: ${colNames.join(', ')}` });
+    }
+
+    const [rows] = await connection.execute(
+      `SELECT * FROM usersIntelligence WHERE \`${userCol}\` = ? AND \`${passCol}\` = ?`,
+      [username, password]
+    );
+
+    if (!rows.length) return res.status(401).json({ error: 'Invalid username or password' });
+
+    const user = { ...rows[0] };
+    delete user[passCol];
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('Login error:', error.message);
+    res.status(500).json({ error: error.message });
+  } finally {
+    if (connection) try { await connection.end(); } catch (_) {}
+  }
+});
+
 // ── GET /api/health ──────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

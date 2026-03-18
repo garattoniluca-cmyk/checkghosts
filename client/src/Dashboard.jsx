@@ -80,7 +80,7 @@ function SubCard({ icon, title, desc, active, onClick }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-export default function Dashboard() {
+export default function Dashboard({ onLogout }) {
   const go = (hash) => { window.location.hash = hash; };
 
   // ── Driver data ──────────────────────────────────────────────────────
@@ -175,6 +175,24 @@ export default function Dashboard() {
           >
             {loading ? '…' : '⟳ Reload'}
           </button>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              style={{
+                background: 'none',
+                border: '1px solid #2a2a2a',
+                color: '#555',
+                fontSize: '0.72rem',
+                padding: '0.25rem 0.7rem',
+                borderRadius: 4,
+                cursor: 'pointer',
+                letterSpacing: '0.04em',
+              }}
+              title="Sign out"
+            >
+              Sign out
+            </button>
+          )}
           <div className="db-badge">Alpha</div>
         </div>
       </header>
