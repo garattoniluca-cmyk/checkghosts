@@ -49,10 +49,48 @@ export function getGhostLapTimeMs(ghostMeta) {
 
 /**
  * Extract intermediates from decoded ghost metadata and convert to milliseconds.
+ *
+ * Compatible with both ghost standards:
+ *  - Standard1 (legacy, current DB): top-level `intermediates` array
+ *      e.g. { intermediates: [22.274, 54.339], events: [] }
+ *  - Standard2 (new): cumulative times stored as entries inside `events[]`
+ *      e.g. events: [{ name: "Intermediate", value: 15.444, extra: 1 }, ...]
+ *
+ * Returns an array of cumulative intermediate times in milliseconds, ordered
+ * by sector index (1, 2, 3 …).
+ *
  * @param {object|null} ghostMeta
  * @returns {number[]} array of intermediate times in ms
  */
 export function getIntermediatesMs(ghostMeta) {
-  if (!ghostMeta || !Array.isArray(ghostMeta.intermediates)) return [];
-  return ghostMeta.intermediates.map((t) => Math.round(t * 1000));
+  if (!ghostMeta) return [];
+
+  // 1) Standard1 — top-level `intermediates` array (preferred when present & non-empty)
+  if (Array.isArray(ghostMeta.intermediates) && ghostMeta.intermediates.length > 0) {
+    return ghostMeta.intermediates
+      .map((t) => (typeof t === 'number' ? Math.round(t * 1000) : null))
+      .filter((v) => v != null);
+  }
+
+  // 2) Standard2 — derive from events[] filtering by name === "Intermediate"
+  // Notes on real-world variants observed in production ghosts:
+  //   • `name` may carry a trailing space ("Intermediate ")
+  //   • the cumulative time may live in `time` (most common) and `value` may be 0
+  //   • `extra` may be 0- or 1-indexed across exporters
+  if (Array.isArray(ghostMeta.events) && ghostMeta.events.length > 0) {
+    const inter = ghostMeta.events
+      .filter((e) => e && typeof e.name === 'string' && e.name.trim() === 'Intermediate')
+      .slice()
+      .sort((a, b) => Number(a.extra ?? 0) - Number(b.extra ?? 0))
+      .map((e) => {
+        const t = (typeof e.time === 'number' && e.time > 0)
+          ? e.time
+          : (typeof e.value === 'number' ? e.value : null);
+        return t != null ? Math.round(t * 1000) : null;
+      })
+      .filter((v) => v != null);
+    if (inter.length > 0) return inter;
+  }
+
+  return [];
 }

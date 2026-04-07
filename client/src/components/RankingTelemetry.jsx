@@ -173,7 +173,73 @@ function buildGhostInfo(rawGhostData) {
   const decoded = decodeGhostData(rawGhostData);
   const lapMs   = getGhostLapTimeMs(decoded);
   const intermediates = getIntermediatesMs(decoded);
-  return { decoded, lapMs, intermediates };
+  return { decoded, lapMs, intermediates, raw: rawGhostData };
+}
+
+// ── Speed Traps helpers ────────────────────────────────────────────────
+// Speed at a given progress (Tao). For each ghost we either:
+//  - Standard2: read the SpeedTrap event with matching `extra` index (m/s → km/h)
+//  - Standard1 (or fallback): interpolate |velocity| at the closest progress
+function vMagnitude(v) {
+  if (!v) return 0;
+  return Math.sqrt((v.x || 0) ** 2 + (v.y || 0) ** 2 + (v.z || 0) ** 2);
+}
+
+function speedKmhFromEvents(decoded, trapIndex) {
+  if (!decoded || !Array.isArray(decoded.events)) return null;
+  // Tolerate trailing spaces in name and 0/1-based extra indexing
+  const isTrap = (e) => e && typeof e.name === 'string' && e.name.trim() === 'SpeedTrap';
+  const target = Number(trapIndex);
+  let ev = decoded.events.find(e => isTrap(e) && Number(e.extra) === target);
+  if (!ev) ev = decoded.events.find(e => isTrap(e) && Number(e.extra) === target - 1);
+  if (!ev || typeof ev.value !== 'number' || ev.value === 0) return null;
+  return ev.value * 3.6; // value is m/s
+}
+
+function speedKmhAtProgress(frames, targetProgress) {
+  if (!Array.isArray(frames) || frames.length < 2 || targetProgress == null) return null;
+  // Find frame with closest progress (robust against wrap-around at lap end)
+  let bestIdx = -1;
+  let bestDiff = Infinity;
+  for (let i = 0; i < frames.length; i++) {
+    const p = frames[i].progress;
+    if (typeof p !== 'number') continue;
+    const d = Math.abs(p - targetProgress);
+    if (d < bestDiff) { bestDiff = d; bestIdx = i; }
+  }
+  if (bestIdx < 0) return null;
+  // Linear interpolation with neighbour if possible
+  const f = frames[bestIdx];
+  const f1 = frames[bestIdx - 1];
+  const f2 = frames[bestIdx + 1];
+  let pair = null;
+  if (f1 && typeof f1.progress === 'number' &&
+      ((f1.progress <= targetProgress && targetProgress <= f.progress) ||
+       (f.progress <= targetProgress && targetProgress <= f1.progress))) {
+    pair = [f1, f];
+  } else if (f2 && typeof f2.progress === 'number' &&
+      ((f.progress <= targetProgress && targetProgress <= f2.progress) ||
+       (f2.progress <= targetProgress && targetProgress <= f.progress))) {
+    pair = [f, f2];
+  }
+  if (pair) {
+    const [a, b] = pair;
+    const dp = b.progress - a.progress;
+    const t = Math.abs(dp) > 1e-9 ? (targetProgress - a.progress) / dp : 0;
+    const sa = vMagnitude(a.velocity);
+    const sb = vMagnitude(b.velocity);
+    return (sa + (sb - sa) * t) * 3.6;
+  }
+  return vMagnitude(f.velocity) * 3.6;
+}
+
+// Aggregate min/avg/max from numeric array (ignores nulls)
+function aggregateSpeeds(arr) {
+  const valid = arr.filter(x => typeof x === 'number' && isFinite(x));
+  if (!valid.length) return { count: 0, min: null, avg: null, max: null };
+  let min = Infinity, max = -Infinity, sum = 0;
+  for (const v of valid) { if (v < min) min = v; if (v > max) max = v; sum += v; }
+  return { count: valid.length, min, avg: sum / valid.length, max };
 }
 
 // ── formatGap: formatta un delta in ms come +s.ms (es. +1.234) ────────
@@ -271,7 +337,7 @@ function ExpandRow({ lap, colCount }) {
 
 // ── AnalyzeRow — ghost telemetry detail ───────────────────────────────
 function AnalyzeRow({ lap, ghost, colCount }) {
-  const { decoded, lapMs, intermediates } = ghost;
+  const { decoded, lapMs, intermediates, raw } = ghost;
   const dbLapMs = lap.lapValueMs !== null && lap.lapValueMs !== undefined
     ? Number(lap.lapValueMs)
     : null;
@@ -388,9 +454,9 @@ function AnalyzeRow({ lap, ghost, colCount }) {
             </div>
           )}
 
-          {/* Download decoded ghost JSON */}
+          {/* Download decoded ghost JSON + raw compressed payload */}
           {decoded && (
-            <div style={{ marginTop: '1rem', textAlign: 'right' }}>
+            <div style={{ marginTop: '1rem', textAlign: 'right', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
               <button
                 className="btn btn-primary"
                 style={{ fontSize: '0.78rem', padding: '0.35rem 0.9rem' }}
@@ -407,6 +473,32 @@ function AnalyzeRow({ lap, ghost, colCount }) {
               >
                 ⬇ Download Ghost JSON
               </button>
+              {raw && (
+                <button
+                  className="btn"
+                  style={{ fontSize: '0.78rem', padding: '0.35rem 0.9rem', background: '#1a1a1a', color: '#F5C518', border: '1px solid #F5C518' }}
+                  title="Raw gzip bytes exactly as stored in DB (base64-decoded)"
+                  onClick={() => {
+                    try {
+                      const cleaned = String(raw).trim();
+                      const bin = atob(cleaned);
+                      const u8 = new Uint8Array(bin.length);
+                      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+                      const blob = new Blob([u8], { type: 'application/gzip' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `ghost_${lap[ID_COL]}.json.gz`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch (err) {
+                      console.warn('Raw ghost download failed:', err.message);
+                    }
+                  }}
+                >
+                  ⬇ Download Ghost (gzip)
+                </button>
+              )}
             </div>
           )}
 
@@ -472,6 +564,9 @@ export default function RankingTelemetry({ tableName, pageTitle, pageSubtitle, p
   const [distribPage, setDistribPage] = useState(1);
   const [distribSearch, setDistribSearch] = useState('');
 
+  // ── Speed Traps definitions (loaded once) ─────────────────────────
+  const [speedTrapsDefs, setSpeedTrapsDefs] = useState([]);
+
   // ── Player profile search ─────────────────────────────────────────
   const [profileSearch, setProfileSearch] = useState('');
   const [profilePlayer, setProfilePlayer] = useState(null);
@@ -506,6 +601,11 @@ export default function RankingTelemetry({ tableName, pageTitle, pageSubtitle, p
     fetch(`/api/stats/flags?table=${tableName}`).then(r => r.json())
       .then(json => { if (json.success) setFlagStats(json); })
       .catch(err => console.error('Failed to load flag stats:', err));
+
+    // Load speed-trap definitions (used by Speed Traps Analyzer)
+    fetch('/api/speedtraps').then(r => r.json())
+      .then(json => { if (json.success) setSpeedTrapsDefs(json.data || []); })
+      .catch(err => console.error('Failed to load speed traps defs:', err));
   }, [tableName]);
 
   // ── Load player coverage stats on mount ─────────────────────────
@@ -558,6 +658,26 @@ export default function RankingTelemetry({ tableName, pageTitle, pageSubtitle, p
       setGhostLoading(prev => { const n = new Set(prev); n.delete(id); return n; });
     }
   }, [tableName]); // stable — relies on ref, not state
+
+  // ── Auto-fetch ghosts for top-20 per intermediate (Speed Traps per-intermediate analyzer)
+  useEffect(() => {
+    if (!laps.length) return;
+    const trapDef = speedTrapsDefs.find(d =>
+      Number(d.idTrack) === Number(selectedTrackId) &&
+      Number(d.idClass) === Number(selectedClassId)
+    );
+    if (!trapDef) return;
+    const interCols = ['lapValueI1Ms', 'lapValueI2Ms', 'lapValueI3Ms'];
+    const ids = new Set();
+    interCols.forEach(col => {
+      const top = [...laps]
+        .filter(r => r[col] != null && r.hasGhostData !== false)
+        .sort((a, b) => Number(a[col]) - Number(b[col]))
+        .slice(0, 20);
+      top.forEach(r => { if (r[ID_COL]) ids.add(r[ID_COL]); });
+    });
+    ids.forEach(id => { if (!fetchedIds.current.has(id)) fetchGhost(id); });
+  }, [laps, selectedTrackId, selectedClassId, speedTrapsDefs, fetchGhost]);
 
   // ── Auto-load ranking: top RANKING_SIZE by lapValueMs ────────────
   const autoLoadRanking = useCallback(async (data) => {
@@ -2309,6 +2429,208 @@ export default function RankingTelemetry({ tableName, pageTitle, pageSubtitle, p
 
             </div>{/* end collapsible content */}
           </details>{/* end Classifica details */}
+
+          {/* ── Speed Traps Analyzer (top-20 ghosts) ─────────────── */}
+          {(() => {
+            const trapDef = speedTrapsDefs.find(d =>
+              Number(d.idTrack) === Number(selectedTrackId) &&
+              Number(d.idClass) === Number(selectedClassId)
+            );
+            if (!trapDef) return null;
+            const traps = [
+              { idx: 1, tao: Number(trapDef.lapSt1Tao) },
+              { idx: 2, tao: Number(trapDef.lapSt2Tao) },
+              { idx: 3, tao: Number(trapDef.lapSt3Tao) },
+            ].filter(t => isFinite(t.tao));
+            if (!traps.length) return null;
+
+            const rows = [];
+            for (const id of rankingIds) {
+              const info = ghostMap.get(id);
+              if (!info?.decoded) continue;
+              const lap = laps.find(r => r[ID_COL] === id);
+              const frames = info.decoded.frames || [];
+              const trapSpeeds = traps.map(t => {
+                const fromEvt = speedKmhFromEvents(info.decoded, t.idx);
+                if (fromEvt != null) return fromEvt;
+                return speedKmhAtProgress(frames, t.tao);
+              });
+              rows.push({
+                id,
+                driver: lap?.driverNickname || `#${id}`,
+                lapMs: info.lapMs,
+                speeds: trapSpeeds,
+              });
+            }
+            if (!rows.length) return null;
+            // sort by lap time
+            rows.sort((a, b) => (a.lapMs ?? 1e15) - (b.lapMs ?? 1e15));
+
+            const aggregates = traps.map((_, i) =>
+              aggregateSpeeds(rows.map(r => r.speeds[i]))
+            );
+            const fmt = v => v == null ? '—' : `${v.toFixed(1)} km/h`;
+
+            return (
+              <details open style={{ marginTop: '1.5rem', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 6, padding: '0.75rem 1rem' }}>
+                <summary style={{ cursor: 'pointer', color: '#F5C518', fontWeight: 700, letterSpacing: '0.04em' }}>
+                  ▼ Speed Traps Analyzer — top {rows.length} ghosts
+                </summary>
+                <div style={{ marginTop: '0.75rem', overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#888', textAlign: 'left' }}>
+                        <th style={{ padding: '0.4rem 0.6rem' }}>#</th>
+                        <th style={{ padding: '0.4rem 0.6rem' }}>Driver</th>
+                        <th style={{ padding: '0.4rem 0.6rem' }}>Lap</th>
+                        {traps.map(t => (
+                          <th key={t.idx} style={{ padding: '0.4rem 0.6rem', color: '#E91E63' }}>
+                            T{t.idx}<br /><span style={{ fontSize: '0.7rem', color: '#555' }}>τ {t.tao.toFixed(4)}</span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r, i) => (
+                        <tr key={r.id} style={{ borderBottom: '1px solid #181818' }}>
+                          <td style={{ padding: '0.35rem 0.6rem', color: '#666' }}>{i + 1}</td>
+                          <td style={{ padding: '0.35rem 0.6rem', color: '#eee' }}>{r.driver}</td>
+                          <td style={{ padding: '0.35rem 0.6rem', color: '#aaa', fontFamily: 'monospace' }}>{r.lapMs ? msToTime(r.lapMs) : '—'}</td>
+                          {r.speeds.map((s, j) => (
+                            <td key={j} style={{ padding: '0.35rem 0.6rem', fontFamily: 'monospace', color: '#F5C518' }}>{fmt(s)}</td>
+                          ))}
+                        </tr>
+                      ))}
+                      <tr style={{ borderTop: '2px solid #2a2a2a', background: '#141414' }}>
+                        <td colSpan={3} style={{ padding: '0.4rem 0.6rem', color: '#888', fontWeight: 700 }}>MIN</td>
+                        {aggregates.map((a, j) => (
+                          <td key={j} style={{ padding: '0.4rem 0.6rem', color: '#48bb78', fontFamily: 'monospace', fontWeight: 700 }}>{fmt(a.min)}</td>
+                        ))}
+                      </tr>
+                      <tr style={{ background: '#141414' }}>
+                        <td colSpan={3} style={{ padding: '0.4rem 0.6rem', color: '#888', fontWeight: 700 }}>AVG</td>
+                        {aggregates.map((a, j) => (
+                          <td key={j} style={{ padding: '0.4rem 0.6rem', color: '#F5C518', fontFamily: 'monospace', fontWeight: 700 }}>{fmt(a.avg)}</td>
+                        ))}
+                      </tr>
+                      <tr style={{ background: '#141414' }}>
+                        <td colSpan={3} style={{ padding: '0.4rem 0.6rem', color: '#888', fontWeight: 700 }}>MAX</td>
+                        {aggregates.map((a, j) => (
+                          <td key={j} style={{ padding: '0.4rem 0.6rem', color: '#E91E63', fontFamily: 'monospace', fontWeight: 700 }}>{fmt(a.max)}</td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: '#555' }}>
+                    Source: SpeedTrap events (new ghost format) or velocity interpolation at trap τ (legacy format)
+                  </div>
+                </div>
+              </details>
+            );
+          })()}
+
+          {/* ── Speed Traps Analyzer — per intermediate top-20 ───── */}
+          {(() => {
+            const trapDef = speedTrapsDefs.find(d =>
+              Number(d.idTrack) === Number(selectedTrackId) &&
+              Number(d.idClass) === Number(selectedClassId)
+            );
+            if (!trapDef) return null;
+            const traps = [
+              { idx: 1, tao: Number(trapDef.lapSt1Tao), interCol: 'lapValueI1Ms', label: 'S1' },
+              { idx: 2, tao: Number(trapDef.lapSt2Tao), interCol: 'lapValueI2Ms', label: 'S2' },
+              { idx: 3, tao: Number(trapDef.lapSt3Tao), interCol: 'lapValueI3Ms', label: 'S3' },
+            ].filter(t => isFinite(t.tao));
+            if (!traps.length || !laps.length) return null;
+
+            const fmt = v => v == null ? '—' : `${v.toFixed(1)} km/h`;
+            let totalLoaded = 0;
+            let totalRequested = 0;
+
+            const blocks = traps.map(t => {
+              const top = [...laps]
+                .filter(r => r[t.interCol] != null && r.hasGhostData !== false)
+                .sort((a, b) => Number(a[t.interCol]) - Number(b[t.interCol]))
+                .slice(0, 20);
+              totalRequested += top.length;
+              const items = top.map(lap => {
+                const id = lap[ID_COL];
+                const info = ghostMap.get(id);
+                let speed = null;
+                if (info?.decoded) {
+                  totalLoaded += 1;
+                  const fromEvt = speedKmhFromEvents(info.decoded, t.idx);
+                  speed = fromEvt != null ? fromEvt : speedKmhAtProgress(info.decoded.frames || [], t.tao);
+                }
+                return {
+                  id,
+                  driver: lap.driverNickname || `#${id}`,
+                  interMs: Number(lap[t.interCol]),
+                  speed,
+                  loaded: !!info?.decoded,
+                };
+              });
+              const agg = aggregateSpeeds(items.map(i => i.speed));
+              return { trap: t, items, agg };
+            });
+
+            const allLoaded = totalLoaded >= totalRequested;
+            const headerNote = allLoaded
+              ? `${totalLoaded} ghosts analysed`
+              : `${totalLoaded} / ${totalRequested} ghosts loaded — fetching…`;
+
+            return (
+              <details open style={{ marginTop: '1rem', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 6, padding: '0.75rem 1rem' }}>
+                <summary style={{ cursor: 'pointer', color: '#E91E63', fontWeight: 700, letterSpacing: '0.04em' }}>
+                  ▼ Speed Traps Analyzer — per intermediate (top 20 by S1 / S2 / S3) — {headerNote}
+                </summary>
+                <div style={{ marginTop: '0.75rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem' }}>
+                  {blocks.map(({ trap, items, agg }) => (
+                    <div key={trap.idx} style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 4, padding: '0.5rem 0.6rem' }}>
+                      <div style={{ marginBottom: '0.4rem', color: '#F5C518', fontWeight: 700, fontSize: '0.85rem' }}>
+                        T{trap.idx} — top 20 by {trap.label} <span style={{ color: '#555', fontWeight: 400 }}>(τ {trap.tao.toFixed(4)})</span>
+                      </div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#777', textAlign: 'left' }}>
+                            <th style={{ padding: '0.25rem 0.4rem' }}>#</th>
+                            <th style={{ padding: '0.25rem 0.4rem' }}>Driver</th>
+                            <th style={{ padding: '0.25rem 0.4rem', textAlign: 'right' }}>Speed</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map((it, i) => (
+                            <tr key={it.id} style={{ borderBottom: '1px solid #151515' }}>
+                              <td style={{ padding: '0.2rem 0.4rem', color: '#555' }}>{i + 1}</td>
+                              <td style={{ padding: '0.2rem 0.4rem', color: '#ddd' }}>{it.driver}</td>
+                              <td style={{ padding: '0.2rem 0.4rem', textAlign: 'right', fontFamily: 'monospace', color: it.loaded ? '#F5C518' : '#444' }}>
+                                {it.loaded ? fmt(it.speed) : '…'}
+                              </td>
+                            </tr>
+                          ))}
+                          <tr style={{ borderTop: '2px solid #2a2a2a', background: '#141414' }}>
+                            <td colSpan={2} style={{ padding: '0.3rem 0.4rem', color: '#888', fontWeight: 700 }}>MIN</td>
+                            <td style={{ padding: '0.3rem 0.4rem', textAlign: 'right', color: '#48bb78', fontFamily: 'monospace', fontWeight: 700 }}>{fmt(agg.min)}</td>
+                          </tr>
+                          <tr style={{ background: '#141414' }}>
+                            <td colSpan={2} style={{ padding: '0.3rem 0.4rem', color: '#888', fontWeight: 700 }}>AVG</td>
+                            <td style={{ padding: '0.3rem 0.4rem', textAlign: 'right', color: '#F5C518', fontFamily: 'monospace', fontWeight: 700 }}>{fmt(agg.avg)}</td>
+                          </tr>
+                          <tr style={{ background: '#141414' }}>
+                            <td colSpan={2} style={{ padding: '0.3rem 0.4rem', color: '#888', fontWeight: 700 }}>MAX</td>
+                            <td style={{ padding: '0.3rem 0.4rem', textAlign: 'right', color: '#E91E63', fontFamily: 'monospace', fontWeight: 700 }}>{fmt(agg.max)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: '#555' }}>
+                  Each column ranks the top 20 laps by that specific intermediate (S1/S2/S3). Ghosts are auto-fetched on demand.
+                </div>
+              </details>
+            );
+          })()}
 
           {/* ── Telemetry Comparison View (sotto la tabella) ──── */}
           {compareIds.length > 0 && (() => {

@@ -208,6 +208,23 @@ app.get('/api/tracks', async (req, res) => {
   }
 });
 
+// ── GET /api/speedtraps ──────────────────────────────────────────────
+// Returns all speed-trap definitions per (idTrack, idClass).
+// Each row exposes Tao positions (progress 0..1) along the lap where
+// the speed traps are placed. Used by the Speed Traps Analyzer.
+app.get('/api/speedtraps', async (req, res) => {
+  let connection;
+  try {
+    connection = await mysql.createConnection(dbConfig());
+    const [rows] = await connection.execute('SELECT * FROM definitionsTracksSpeedTraps');
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    if (connection) try { await connection.end(); } catch (_) {}
+  }
+});
+
 // ── GET /api/stats/overview ──────────────────────────────────────────
 // Returns aggregate lap counts grouped by className and trackName.
 app.get('/api/stats/overview', async (req, res) => {

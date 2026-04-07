@@ -451,9 +451,26 @@ export default function GhostTelemetry({ ghost1, ghost2, onClose }) {
   // Converti intermediates CUMULATIVI (secondi da inizio giro) in tempi per SETTORE
   // cumul[0] = fine S1, cumul[1] = fine S2 → sector[i] = cumul[i] - cumul[i-1]
   // Aggiunge il settore finale: lapTime - cumul[last]
+  // Compatibile sia con Standard1 (top-level `intermediates`) sia con Standard2 (events[].name === 'Intermediate')
+  const getCumulIntermediates = (meta) => {
+    if (!meta) return [];
+    if (Array.isArray(meta.intermediates) && meta.intermediates.length > 0) {
+      return meta.intermediates.filter(v => typeof v === 'number');
+    }
+    if (Array.isArray(meta.events) && meta.events.length > 0) {
+      return meta.events
+        .filter(e => e && typeof e.name === 'string' && e.name.trim() === 'Intermediate')
+        .slice()
+        .sort((a, b) => Number(a.extra ?? 0) - Number(b.extra ?? 0))
+        .map(e => (typeof e.time === 'number' && e.time > 0) ? e.time
+                 : (typeof e.value === 'number' ? e.value : null))
+        .filter(v => v != null);
+    }
+    return [];
+  };
   const buildInter = (meta) => {
-    if (!meta?.intermediates || meta.intermediates.length === 0) return [];
-    const cumul = meta.intermediates;
+    const cumul = getCumulIntermediates(meta);
+    if (cumul.length === 0) return [];
     const sectors = cumul.map((v, i) => i === 0 ? v : v - cumul[i - 1]);
     if (meta.lapTime != null) {
       sectors.push(meta.lapTime - cumul[cumul.length - 1]);

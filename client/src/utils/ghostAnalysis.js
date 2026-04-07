@@ -43,9 +43,10 @@ export function calculateDerivedData(frames, totalTrackLength) {
   const speedMps = new Array(n).fill(0);
   const latAccG = new Array(n).fill(0);
   const longAccG = new Array(n).fill(0);
-  const steer = frames.map(f => (f.steer ?? 0) / 127.0);
-  const gas = frames.map(f => (f.gas ?? 0) / 255.0);
-  const brake = frames.map(f => (f.brake ?? 0) / 255.0);
+  // Standard1 & Standard2: gas/brake are integer % [0..100], steer is integer [-50..+50]
+  const steer = frames.map(f => (f.steer ?? 0) / 50.0);
+  const gas = frames.map(f => (f.gas ?? 0) / 100.0);
+  const brake = frames.map(f => (f.brake ?? 0) / 100.0);
   const rpm = frames.map(f => f.rpm ?? 0);
   const gear = frames.map(f => f.gear ?? 0);
   const trackLength = totalTrackLength ?? 0;
